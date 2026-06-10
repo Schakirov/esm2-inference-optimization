@@ -1,0 +1,12 @@
+torch
+transformers
+accelerate
+safetensors
+numpy
+pandas
+tqdm
+rich
+typer
+pytest
+biopython
+triton
