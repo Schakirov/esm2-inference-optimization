@@ -1,0 +1,44 @@
+======================================================================
+ESM2 L4 environment check
+generated_utc: 2026-06-10T09:58:37+00:00
+======================================================================
+
+[ System ]
+  python_version   : 3.12.3
+  python_executable: /home/ubuntu/claude/esm2-l4-inference-optimization/.venv/bin/python
+  platform         : Linux-6.17.0-1017-aws-x86_64-with-glibc2.39
+  processor        : x86_64
+  machine          : x86_64
+
+[ PyTorch / CUDA ]
+  torch_version    : 2.12.0+cu130
+  cuda_version     : 13.0
+  cudnn_version    : 92000
+  cuda_available   : True
+  device_count     : 1
+  --- device 0 ---
+    name           : NVIDIA L4
+    capability     : 8.9
+    total_memory   : 22.04 GiB
+    multiprocessors: 58
+    mem_allocated  : 0.00 GiB
+    mem_reserved   : 0.00 GiB
+  bf16_supported   : True
+
+[ Package versions ]
+  torch         : 2.12.0
+  transformers  : 5.10.2
+  accelerate    : 1.13.0
+  safetensors   : 0.8.0
+  numpy         : 2.4.6
+  pandas        : 3.0.3
+  triton        : 3.7.0
+  biopython     : 1.87
+  typer         : 0.25.1
+  rich          : 15.0.0
+
+[ nvidia-smi ]
+  query: name,driver_version,memory.total,memory.used,compute_cap,temperature.gpu,utilization.gpu
+    NVIDIA L4, 595.71.05, 23034 MiB, 3 MiB, 8.9, 40, 0 %
+
+======================================================================
