@@ -1,1 +1,53 @@
-.venv
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Local environment
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Claude Code local/private settings
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Hugging Face / model caches if accidentally placed inside repo
+.cache/
+.huggingface/
+hf_cache/
+models/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+
+# Large profiling artifacts
+*.nsys-rep
+*.qdrep
+*.sqlite
+*.trace.json
+*.chrome-trace.json
+profiler_traces/
+results/profiles/
+results/traces/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+.DS_Store
+
+# Build/package artifacts
+build/
+dist/
+*.egg-info/
