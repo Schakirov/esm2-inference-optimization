@@ -4,50 +4,144 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M4 · Batching &amp; padding · ESM2 L4</title>
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=5">
+  <script>(function(){try{var t=localStorage.getItem("esm2-theme");if(t==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}})();</script>
 </head>
 <body data-page="m4.html">
 <div class="layout">
   <nav class="side" id="side"></nav>
   <main>
     <div class="phead">
-      <div class="statusline todo">○ Planned</div>
+      <div class="statusline done">● Complete · review gate passed</div>
       <h2>Milestone 4 · Variable-length batching &amp; padding</h2>
-      <p class="lead">Measure what real, mixed-length protein batches cost. The baseline used
-      same-length batches with zero padding by construction; this milestone introduces padding waste as
-      a first-class, quantified metric.</p>
+      <p class="lead">Real proteomes have mixed-length sequences; batching pads each to its batch's
+      longest member, so the GPU burns compute on padding. Over a fixed 256-sequence pool (lengths 32–512
+      aa), this milestone quantifies that waste and how much a simple <b>length-sorting</b> strategy
+      recovers. Result: naive batching wastes <b>41–44%</b> of compute on padding; sorting cuts it to
+      <b>2–8%</b> and lifts real-token throughput up to <b>1.75×</b> — at a roughly constant
+      <em>padded</em>-token rate.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">Padding waste · naive</div><div class="v">41–44% <small>of compute</small></div></div>
+      <div class="card"><div class="k">Padding waste · sorted</div><div class="v">2–8% <small>of compute</small></div></div>
+      <div class="card"><div class="k">Real-token speedup</div><div class="v">1.75× <small>at batch 8</small></div></div>
+      <div class="card"><div class="k">Pool</div><div class="v">256 <small>seqs · 32–512 aa</small></div></div>
     </div>
 
     <section>
-      <div class="kicker">What this milestone will do</div>
-      <h2>Plan</h2>
+      <div class="kicker">What was built</div>
+      <h2>Batch-planning library &amp; benchmark</h2>
       <ul class="clean">
-        <li><b>Define padding waste.</b> Split throughput into <em>padded compute tokens/sec</em> vs
-        <em>real amino-acid tokens/sec</em>, and report the fraction of compute spent on pad tokens.</li>
-        <li><b>Batching strategies.</b> Compare naive padding-to-max against length-aware approaches
-        (e.g. length bucketing / sorting) on realistic length distributions.</li>
-        <li><b>Realistic inputs.</b> Move beyond uniform-random lengths toward distributions that
-        resemble real proteomes, since length statistics drive padding overhead.</li>
+        <li><code>src/esm2_perf/batching.py</code> — <code>plan_batches()</code> groups sequence indices
+        (<code>naive</code> order or <code>sorted</code> by length) and tallies real vs padded tokens.
+        Pure Python, no torch — so the padding math is unit-tested on the CPU.</li>
+        <li><code>scripts/03_bench_batching.py</code> — shares one fixed variable-length pool across all
+        cells, pre-tokenizes each strategy's batches onto the GPU, then times one full pass with CUDA
+        events under <code>torch.inference_mode()</code>.</li>
+        <li><code>src/esm2_perf/results.py</code> — <code>BATCHING_COLUMNS</code> schema.</li>
+        <li>11 CPU-only unit tests (<code>tests/test_batching.py</code>); 42 tests pass in total.</li>
+      </ul>
+    </section>
+
+    <section id="results">
+      <div class="kicker">Full data · 6 cells</div>
+      <h2>Batching results</h2>
+      <p>Source: <code>results/raw/batching_20260613T112856Z.csv</code> (bf16). Every row processes the
+      same pool, so <code>real tokens</code> = 72,720 on every row — only the grouping changes.
+      <code>padding</code> is the fraction of computed tokens that are pad; <code>real</code> and
+      <code>padded</code> tokens/sec are the useful-work and raw-GPU rates respectively.</p>
+      <div class="controls">
+        <span style="color:var(--faint);font-size:12px;margin-right:4px">strategy:</span>
+        <button data-f="all" class="on">all</button>
+        <button data-f="naive">naive</button>
+        <button data-f="sorted">sorted</button>
+      </div>
+      <div class="tablewrap">
+        <table id="resTable">
+          <thead><tr>
+            <th>strategy</th><th class="num">batch</th><th class="num">padding</th>
+            <th class="num">padded tokens</th><th class="num">latency ms</th>
+            <th class="num">real tok/sec</th><th class="num">padded tok/sec</th><th class="num">peak GB</th>
+          </tr></thead>
+          <tbody id="resBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="kicker">What the benchmark says</div>
+      <h2>Key takeaways</h2>
+      <ul class="clean">
+        <li><b>Length-sorting is a large, free win.</b> At batch 8 it drops padding from 41% to 2% and
+        raises real-token throughput 1.75× (10,476 → 18,382 tok/s) — purely by reordering, no kernel or
+        precision change. Sorted <code>padded_tokens</code> (74,352) is within 2% of the irreducible
+        <code>actual_tokens</code> (72,720).</li>
+        <li><b>The win is recovered waste, not a faster GPU.</b> Padded tokens/sec is similar across
+        strategies at each batch size (~17.7k naive vs ~18.8k sorted at bs 8). The GPU computes padded
+        tokens at about the same rate either way; sorting just stops feeding it padding.</li>
+        <li><b>Padding grows with batch size.</b> Bigger batches span a wider length range, so even sorted
+        batches pad more (2% → 8% from bs 8 → 32). Here smaller batches are more padding-efficient.</li>
+        <li><b>Padded throughput dips slightly at larger batches</b> (sorted 18.8k → 15.4k tok/s): bigger
+        batches more often contain a long sequence, raising the batch max and the O(L²) attention cost per
+        token — the same quadratic effect seen in the <a href="m2.html">baseline</a>.</li>
+        <li><b>Memory tracks batch size, not strategy</b> (1.42 → 2.01 GB from bs 8 → 32), well within the
+        L4's 24 GB.</li>
       </ul>
     </section>
 
     <section>
-      <div class="kicker">Planned outputs</div>
-      <h2>Artifacts</h2>
-      <ul class="clean">
-        <li><code>src/esm2_perf/batching.py</code> — batching / bucketing utilities.</li>
-        <li><code>scripts/03_bench_batching.py</code> — padding-efficiency benchmark.</li>
-        <li>A timestamped batching CSV under <code>results/raw/</code>.</li>
-      </ul>
-      <div class="note">
-        <div class="h">Key takeaways</div>
-        <p>To be populated once this milestone runs and passes its review gate.</p>
+      <div class="kicker">Honest scope</div>
+      <h2>Limitations</h2>
+      <div class="note warn">
+        <div class="h">Read the win in context</div>
+        <p>Sequence lengths are <b>uniform</b> in [min, max]; real proteomes are not, so the absolute
+        padding fractions are illustrative — the mechanism (sorting removes intra-batch length variance)
+        and the relative win generalize, but don't quote 41% as universal. Sorting also <b>reorders
+        outputs</b>: a production pipeline must gather embeddings back to input order, and sorting assumes
+        a full batch pool, not streaming. Finally, because attention is O(L²), a long sequence's padding
+        costs disproportionately more <em>time</em> than its token share suggests.</p>
       </div>
     </section>
 
     <div class="pager" id="pager"></div>
   </main>
 </div>
-<script src="assets/nav.js"></script>
+
+<script>
+// Batching matrix (from results/raw/batching_20260613T112856Z.csv); real tokens = 72,720 every row
+// [strategy, batch, padding_fraction, padded_tokens, latency_ms, real_tok_s, padded_tok_s, peak_gb]
+const ROWS = [
+  ["naive", 8,  0.4097, 123200, 6941.2773, 10476.46, 17748.89, 1.4202],
+  ["naive", 16, 0.4258, 126656, 8018.8867,  9068.59, 15794.71, 1.6183],
+  ["naive", 32, 0.4399, 129824, 8592.6611,  8463.04, 15108.71, 2.0133],
+  ["sorted",8,  0.0219,  74352, 3956.0930, 18381.77, 18794.30, 1.4195],
+  ["sorted",16, 0.0454,  76176, 4545.9966, 15996.49, 16756.72, 1.6175],
+  ["sorted",32, 0.0833,  79328, 5140.3745, 14146.83, 15432.34, 2.0125],
+];
+const body=document.getElementById('resBody');
+function k(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n)}
+function render(filter){
+  body.innerHTML='';
+  ROWS.filter(r=>filter==='all'||r[0]===filter).forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=
+      `<td>${r[0]}</td><td class="num">${r[1]}</td>`+
+      `<td class="num">${(r[2]*100).toFixed(1)}%</td><td class="num">${r[3].toLocaleString()}</td>`+
+      `<td class="num">${r[4].toFixed(0)}</td><td class="num">${k(r[5])}</td>`+
+      `<td class="num">${k(r[6])}</td><td class="num">${r[7].toFixed(2)}</td>`;
+    body.appendChild(tr);
+  });
+}
+render('all');
+document.querySelectorAll('.controls button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.controls button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    render(b.dataset.f);
+  });
+});
+</script>
+<script src="assets/nav.js?v=5"></script>
 </body>
 </html>

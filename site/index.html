@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Overview · ESM2 L4 Inference Optimization</title>
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=5">
+  <script>(function(){try{var t=localStorage.getItem("esm2-theme");if(t==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}})();</script>
 </head>
 <body data-page="index.html">
 <div class="layout">
@@ -22,8 +23,8 @@
         <span class="pill">Model: <b>ESM2-650M</b></span>
         <span class="pill">GPU: <b>NVIDIA L4 · 24&nbsp;GB · Ada</b></span>
         <span class="pill">Workload: <b>masked mean-pooled embeddings</b></span>
-        <span class="pill">Status: <b>2 / 9 milestones complete</b></span>
-        <span class="pill">Snapshot: <b>2026-06-12</b></span>
+        <span class="pill">Status: <b>4 / 9 milestones complete</b></span>
+        <span class="pill">Snapshot: <b>2026-06-13</b></span>
       </div>
     </div>
 
@@ -127,16 +128,16 @@
         <span class="badge b-done">done</span></div>
       <div class="ms"><div class="num">3</div>
         <div class="body"><h4><a href="m3.html">Correctness &amp; pooling harness</a></h4>
-        <p>Masked mean pooling; fp16/bf16 vs fp32 reference with documented tolerances.</p></div>
-        <span class="badge b-next">next</span></div>
+        <p>Masked mean pooling; fp16/bf16 vs fp32 reference — fp16 ~6× more faithful than bf16.</p></div>
+        <span class="badge b-done">done</span></div>
       <div class="ms"><div class="num">4</div>
         <div class="body"><h4><a href="m4.html">Variable-length batching / padding</a></h4>
-        <p>Quantify padding waste; batching strategies.</p></div>
-        <span class="badge b-todo">planned</span></div>
+        <p>Length-sorting cuts padding waste 41%→2%, up to 1.75× real-token throughput.</p></div>
+        <span class="badge b-done">done</span></div>
       <div class="ms"><div class="num">5</div>
         <div class="body"><h4><a href="m5.html"><code>torch.compile</code> &amp; static shapes</a></h4>
         <p>Compile warmup vs steady-state; static-shape behavior.</p></div>
-        <span class="badge b-todo">planned</span></div>
+        <span class="badge b-next">next</span></div>
       <div class="ms"><div class="num">6</div>
         <div class="body"><h4><a href="m6.html">Triton masked-mean-pooling kernel</a></h4>
         <p>Custom kernel + tests + benchmark; reported as measured.</p></div>
@@ -163,6 +164,6 @@
     <div class="pager" id="pager"></div>
   </main>
 </div>
-<script src="assets/nav.js"></script>
+<script src="assets/nav.js?v=5"></script>
 </body>
 </html>

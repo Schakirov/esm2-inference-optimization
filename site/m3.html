@@ -4,62 +4,157 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M3 · Correctness · ESM2 L4</title>
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=5">
+  <script>(function(){try{var t=localStorage.getItem("esm2-theme");if(t==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}})();</script>
 </head>
 <body data-page="m3.html">
 <div class="layout">
   <nav class="side" id="side"></nav>
   <main>
     <div class="phead">
-      <div class="statusline next">● Up next · awaiting human approval at the review gate</div>
+      <div class="statusline done">● Complete · review gate passed</div>
       <h2>Milestone 3 · Correctness &amp; pooling harness</h2>
-      <p class="lead">Implement masked mean pooling over real amino-acid tokens, then validate the
-      fp16/bf16 paths against an fp32 eager reference with documented numerical tolerances. This
-      establishes the correctness foundation that every later speed claim is checked against.</p>
+      <p class="lead">Before optimizing anything, pin down what "correct" means. A masked-mean-pooling
+      module (three numerically-equivalent implementations) plus a harness that runs the ESM2 encoder in
+      fp32, bf16, and fp16 on identical inputs and compares per-token hidden states and pooled embeddings
+      against the fp32 reference. Headline: <b>fp16 tracks fp32 ~6× tighter than bf16</b>, while both keep
+      pooled-embedding cosine similarity ≥ 0.9996.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">fp16 pooled fidelity</div><div class="v">≥0.99999 <small>min cosine vs fp32</small></div></div>
+      <div class="card"><div class="k">bf16 pooled fidelity</div><div class="v">≥0.9996 <small>min cosine vs fp32</small></div></div>
+      <div class="card"><div class="k">Impl agreement</div><div class="v">~2e-6 <small>max abs err (fp32)</small></div></div>
+      <div class="card"><div class="k">Pooling impls</div><div class="v">3 <small>cross-checked</small></div></div>
     </div>
 
     <section>
-      <div class="kicker">What this milestone will do</div>
-      <h2>Plan</h2>
+      <div class="kicker">What was built</div>
+      <h2>Pooling module &amp; correctness harness</h2>
       <ul class="clean">
-        <li><b>Masked mean pooling.</b> Reduce per-token hidden states to one vector per protein by
-        averaging over <em>real</em> amino-acid tokens only — excluding padding and the
-        <code>&lt;cls&gt;</code>/<code>&lt;eos&gt;</code> special tokens.</li>
-        <li><b>fp32 eager reference.</b> Establish a trusted reference output, then compare bf16 and
-        fp16 embeddings against it with explicit, documented tolerances (exact equality is not expected
-        across dtypes).</li>
-        <li><b>Implementation equivalence.</b> Validate that alternative pooling implementations agree
-        with the reference, so later optimized versions (incl. the Triton kernel) have a ground truth.</li>
+        <li><code>src/esm2_perf/pooling.py</code> — <code>build_pool_mask</code> + three masked-mean-pool
+        implementations: vectorized (production), <code>einsum</code>, and an explicit per-sequence
+        reference oracle. All-padding rows pool to a zero vector, not NaN.</li>
+        <li><code>scripts/02_check_correctness.py</code> — two-phase harness: compute the fp32 reference,
+        stash it on the CPU, release it, then load bf16/fp16 and compare (one model resident at a time).</li>
+        <li><code>src/esm2_perf/results.py</code> — <code>CORRECTNESS_COLUMNS</code> schema.</li>
+        <li>9 CPU-only unit tests (<code>tests/test_pooling.py</code>); 23 tests pass in total.</li>
       </ul>
     </section>
 
-    <section>
-      <div class="kicker">Planned outputs</div>
-      <h2>Artifacts</h2>
-      <ul class="clean">
-        <li><code>src/esm2_perf/pooling.py</code> — masked mean pooling implementation(s).</li>
-        <li><code>scripts/02_check_correctness.py</code> — dtype-vs-reference comparison driver.</li>
-        <li>Unit tests asserting pooling correctness and tolerance bounds.</li>
-      </ul>
-    </section>
-
-    <section>
-      <div class="kicker">Why it matters</div>
-      <h2>The point of doing this before more speed work</h2>
-      <p>The baseline (<a href="m2.html">Milestone 2</a>) showed bf16 ≈ fp16 on <em>throughput</em> — but
-      throughput parity says nothing about <em>accuracy</em>. Before claiming any optimization is "free,"
-      we need a documented numerical budget: how far can a pooled embedding drift from the fp32 reference
-      and still be acceptable? Everything downstream — batching, <code>torch.compile</code>, the Triton
-      kernel — is validated against the harness built here.</p>
+    <section id="results">
+      <div class="kicker">Full data · 12 comparisons</div>
+      <h2>Correctness results</h2>
+      <p>Source: <code>results/raw/correctness_20260613T102451Z.csv</code> (batch 8, special tokens
+      excluded). Errors are computed in fp32. <code>min cosine</code> is the worst sequence in the batch
+      (pooled embeddings only). The <code>pass</code> flag is a deliberately strict element-wise
+      <code>allclose(rtol=1e-2, atol=1e-2)</code> — for an embedding, cosine similarity is the metric to
+      trust.</p>
+      <div class="controls">
+        <span style="color:var(--faint);font-size:12px;margin-right:4px">show:</span>
+        <button data-f="all" class="on">all</button>
+        <button data-f="impl">impl-equiv</button>
+        <button data-f="bf16">bf16</button>
+        <button data-f="fp16">fp16</button>
+      </div>
+      <div class="tablewrap">
+        <table id="resTable">
+          <thead><tr>
+            <th>comparison</th><th>tensor</th><th class="num">seq_len</th>
+            <th class="num">max abs err</th><th class="num">mean abs err</th><th class="num">rms err</th>
+            <th class="num">min cosine</th><th>pass</th>
+          </tr></thead>
+          <tbody id="resBody"></tbody>
+        </table>
+      </div>
       <div class="note">
-        <div class="h">Key takeaways</div>
-        <p>To be populated once this milestone runs and passes its review gate.</p>
+        <div class="h">Why max relative error is not shown</div>
+        <p>Hidden states contain near-zero elements; dividing by them inflates relative error to
+        meaningless magnitudes (1e4–1e5) even when absolute error is tiny. It is recorded in the CSV but
+        deliberately not used as a gate. Absolute error, RMS error, and cosine similarity are the
+        trustworthy columns.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="kicker">What the harness says</div>
+      <h2>Key takeaways</h2>
+      <ul class="clean">
+        <li><b>The three pooling implementations are interchangeable.</b> ~2e-6 max error in fp32 is pure
+        floating-point summation-order round-off. The per-sequence loop is an independent oracle for the
+        fast paths now and the Triton kernel in <a href="m6.html">Milestone 6</a>.</li>
+        <li><b>fp16 ≫ bf16 in accuracy here.</b> fp16's 10-bit mantissa tracks fp32 ~6× tighter than
+        bf16's 7-bit mantissa. bf16's advantage is dynamic range, which this well-scaled encoder does not
+        need — so fp16 is the more faithful low-precision choice for embedding fidelity (throughput was
+        equal in <a href="m2.html">Milestone 2</a>).</li>
+        <li><b>Pooled embeddings are directionally near-identical</b> in both precisions (cosine ≥ 0.9996),
+        even where strict element-wise <code>allclose</code> fails. Averaging over tokens cancels much of
+        the per-element noise.</li>
+        <li><b>bf16 "fails" the strict gate, and that is fine.</b> <code>pass=False</code> reflects a 1e-2
+        element-wise threshold, not a meaningful embedding error — documented rather than hidden, which is
+        exactly why cosine similarity is the headline metric.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Honest scope</div>
+      <h2>What this does &amp; doesn't establish</h2>
+      <div class="note warn">
+        <div class="h">Relative precision, not absolute ground truth</div>
+        <p>The reference is fp32 <em>eager</em> on this same L4 — not a CPU or alternate device. The
+        harness measures how far low precision drifts from high precision on identical token ids; it is a
+        relative precision check. Inputs are synthetic uniform-random amino-acid sequences, which does not
+        affect the dtype-vs-dtype numerical relationship measured here.</p>
       </div>
     </section>
 
     <div class="pager" id="pager"></div>
   </main>
 </div>
-<script src="assets/nav.js"></script>
+
+<script>
+// Correctness comparisons (from results/raw/correctness_20260613T102451Z.csv)
+// [filterKey, comparison, tensor, seq_len, max_abs, mean_abs, rms, cosine|null, pass]
+const ROWS = [
+  ["impl","vectorized vs reference","pooled",128, 4.8e-7, 0.0,     1e-8,   0.99999994, true],
+  ["impl","einsum vs reference",    "pooled",128, 1.91e-6,1e-8,    4e-8,   0.99999994, true],
+  ["impl","vectorized vs reference","pooled",512, 4.8e-7, 0.0,     1e-8,   0.99999982, true],
+  ["impl","einsum vs reference",    "pooled",512, 1.91e-6,1e-8,    5e-8,   0.99999982, true],
+  ["bf16","bf16 vs fp32","hidden",128, 0.32139635, 0.00370811, 0.00580386, null,       false],
+  ["bf16","bf16 vs fp32","pooled",128, 0.06043434, 0.00187547, 0.00319604, 0.99978733, false],
+  ["bf16","bf16 vs fp32","hidden",512, 0.46356773, 0.00415286, 0.00718041, null,       false],
+  ["bf16","bf16 vs fp32","pooled",512, 0.10586071, 0.00188905, 0.00347833, 0.99965382, false],
+  ["fp16","fp16 vs fp32","hidden",128, 0.05946302, 0.00059582, 0.00093396, null,       false],
+  ["fp16","fp16 vs fp32","pooled",128, 0.01066065, 0.00028399, 0.00049375, 0.99999082, true],
+  ["fp16","fp16 vs fp32","hidden",512, 0.03251171, 0.00049809, 0.00075473, null,       false],
+  ["fp16","fp16 vs fp32","pooled",512, 0.01161861, 0.00022302, 0.00036126, 0.99999595, true],
+];
+const body=document.getElementById('resBody');
+function err(n){ if(n===0) return '0'; return n.toExponential(2); }
+function render(filter){
+  body.innerHTML='';
+  ROWS.filter(r=>filter==='all'||r[0]===filter).forEach(r=>{
+    const cos = r[7]===null ? '<span style="color:var(--faint)">—</span>' : r[7].toFixed(5);
+    const pass = r[8]
+      ? '<span style="color:var(--ok,#3a9)">pass</span>'
+      : '<span style="color:var(--faint)">—</span>';
+    const tr=document.createElement('tr');
+    tr.innerHTML=
+      `<td>${r[1]}</td><td>${r[2]}</td><td class="num">${r[3]}</td>`+
+      `<td class="num">${err(r[4])}</td><td class="num">${err(r[5])}</td><td class="num">${err(r[6])}</td>`+
+      `<td class="num">${cos}</td><td>${pass}</td>`;
+    body.appendChild(tr);
+  });
+}
+render('all');
+document.querySelectorAll('.controls button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.controls button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    render(b.dataset.f);
+  });
+});
+</script>
+<script src="assets/nav.js?v=5"></script>
 </body>
 </html>

@@ -84,4 +84,8 @@ column -s, -t results/raw/batching_20260613T112856Z.csv | less -S
 
 ## Human notes
 
-_Add review outcome / approval here before Milestone 5 begins._
+Reviewed milestone 4
+
+Length-sorted batching reduces padding waste of resources. Expectedly.
+
+Let's move to the next more interesting milestones.

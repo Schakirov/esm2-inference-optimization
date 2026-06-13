@@ -6,6 +6,19 @@
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 }
+/* ---- light theme (opt-in via <html data-theme="light">) ---- */
+:root[data-theme="light"]{
+  --bg:#f6f8fa; --panel:#ffffff; --panel2:#eef1f5; --line:#d0d7de;
+  --ink:#1f2328; --muted:#57606a; --faint:#7a828b;
+  --accent:#1a7f4b; --accent2:#0969da; --warn:#9a6700; --pink:#bf3989;
+  --next:#9a6700;
+}
+/* contrast fixups for the few hardcoded greens used in done badges/dots */
+:root[data-theme="light"] .statusline.done,
+:root[data-theme="light"] .b-done{color:#1a7f4b}
+:root[data-theme="light"] .dot.done{background:#1a7f4b}
+html{color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;font-size:16px}
@@ -112,6 +125,13 @@ ul.clean li b{color:var(--ink)}
 .controls button.on{background:var(--panel2);color:var(--accent);border-color:var(--accent)}
 
 footer{color:var(--faint);font-size:12.5px;border-top:1px solid var(--line);padding-top:20px;max-width:74ch;margin-top:40px}
+
+/* theme toggle (in sidebar, built by nav.js) */
+.themebtn{display:flex;align-items:center;gap:8px;width:100%;margin:2px 0 18px;cursor:pointer;
+  font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--panel2);
+  border:1px solid var(--line);border-radius:6px;padding:7px 11px;text-align:left}
+.themebtn:hover{color:var(--ink);border-color:var(--accent)}
+.themebtn .ico{font-size:13px;line-height:1}
 
 @media(max-width:880px){
   .layout{grid-template-columns:1fr}

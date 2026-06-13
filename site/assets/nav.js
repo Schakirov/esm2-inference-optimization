@@ -5,9 +5,9 @@ const PAGES = [
   {href:'m0.html',    label:'0 · Scaffold',        short:'Scaffold',        status:'done'},
   {href:'m1.html',    label:'1 · Environment',     short:'Environment',     status:'done'},
   {href:'m2.html',    label:'2 · Baseline',        short:'Baseline',        status:'done'},
-  {href:'m3.html',    label:'3 · Correctness',     short:'Correctness',     status:'next'},
-  {href:'m4.html',    label:'4 · Batching',        short:'Batching',        status:'todo'},
-  {href:'m5.html',    label:'5 · torch.compile',   short:'torch.compile',   status:'todo'},
+  {href:'m3.html',    label:'3 · Correctness',     short:'Correctness',     status:'done'},
+  {href:'m4.html',    label:'4 · Batching',        short:'Batching',        status:'done'},
+  {href:'m5.html',    label:'5 · torch.compile',   short:'torch.compile',   status:'next'},
   {href:'m6.html',    label:'6 · Triton kernel',   short:'Triton kernel',   status:'todo'},
   {href:'m7.html',    label:'7 · Profiling',       short:'Profiling',       status:'todo'},
   {href:'m8.html',    label:'8 · Results & README',short:'Results & README',status:'todo'},
@@ -21,7 +21,8 @@ const PAGES = [
     let html =
       '<h1>ESM2 &times; L4</h1>'+
       '<div class="sub">Inference optimization logbook</div>'+
-      '<div class="prog">2 / 9 milestones complete</div>';
+      '<div class="prog">4 / 9 milestones complete</div>'+
+      '<button class="themebtn" id="themebtn" type="button"></button>';
     html += '<a href="index.html"'+(current==='index.html'?' class="active"':'')+'>'+
             '<span class="lbl">Overview</span></a>';
     html += '<div class="grp">Milestones</div>';
@@ -32,6 +33,30 @@ const PAGES = [
               dot+'<span class="lbl">'+p.label+'</span></a>';
     }
     side.innerHTML = html;
+
+    // ---- dark/light theme toggle ----
+    const KEY = 'esm2-theme';
+    const btn = document.getElementById('themebtn');
+    function currentTheme(){
+      return document.documentElement.getAttribute('data-theme') || 'dark';
+    }
+    function paintBtn(){
+      // Show the action: the theme you'd switch TO.
+      const target = currentTheme() === 'light' ? 'dark' : 'light';
+      const ico = target === 'dark' ? '🌙' : '☀';
+      btn.innerHTML = '<span class="ico">'+ico+'</span><span>'+
+        (target === 'dark' ? 'Dark mode' : 'Light mode')+'</span>';
+    }
+    function setTheme(t){
+      if(t === 'dark'){ document.documentElement.removeAttribute('data-theme'); }
+      else { document.documentElement.setAttribute('data-theme', t); }
+      try { localStorage.setItem(KEY, t); } catch(e){}
+      paintBtn();
+    }
+    if(btn){
+      paintBtn();
+      btn.addEventListener('click', ()=> setTheme(currentTheme() === 'light' ? 'dark' : 'light'));
+    }
   }
   // prev/next pager
   const pager = document.getElementById('pager');
