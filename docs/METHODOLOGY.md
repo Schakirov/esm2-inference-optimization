@@ -119,6 +119,21 @@ per-shape specialization.
 small/overhead-bound shapes often do not benefit at all. When compile does not beat eager for
 a shape, the row records it (`speedup_vs_eager < 1`) rather than hiding it.
 
-### Still to come
+### Triton kernel validation (Milestone 6)
 
-Triton kernel validation is documented as that milestone lands.
+A custom kernel is only worth anything if it is correct, so the Triton masked-mean-pooling
+kernel (`esm2_perf.triton_pooling`) is validated *before* it is benchmarked:
+
+- **Against the oracle.** The kernel is tested against the Milestone 3 per-sequence reference
+  (`masked_mean_pool_reference`) and the vectorized PyTorch pooling, to ≤1e-4 rtol / 1e-5 atol
+  on fp32 inputs across several shapes — this is exactly why the independent reference was
+  built in Milestone 3. Edge cases (all-padding rows → zeros, not NaN; `out_dtype`) are tested
+  too. The tests require CUDA + Triton and skip on CPU-only machines.
+- **Correctness reported alongside speed.** The benchmark records `max_abs_err_vs_ref` next to
+  latency for every implementation, so a fast-but-wrong kernel cannot hide. The kernel
+  accumulates in fp32, so its error vs the fp32 reference is round-off (~1e-8) while the bf16
+  PyTorch paths carry ~1e-3.
+- **Honest baselines and scope.** Speedup is reported vs the eager vectorized PyTorch pooling,
+  but the analysis also compares against the *best* PyTorch option (`einsum`/`compiled`) so a
+  weak baseline does not inflate the headline. Pooling is a tiny fraction of encoder time, so
+  the milestone states plainly that the kernel does not move end-to-end throughput.

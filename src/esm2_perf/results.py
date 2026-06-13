@@ -115,6 +115,29 @@ COMPILE_COLUMNS: List[str] = [
     "notes",
 ]
 
+# Pooling-kernel schema (Milestone 6). Each row times one masked-mean-pool implementation
+# (pytorch / einsum / compiled / triton) on a hidden-state tensor of a given shape, with the
+# speedup vs the eager PyTorch pooling and the max abs error against the fp32 reference, so the
+# kernel is reported as both fast (or not) and correct.
+POOLING_COLUMNS: List[str] = [
+    "gpu_name",
+    "dtype",
+    "impl",                  # pytorch | einsum | compiled | triton
+    "batch_size",
+    "seq_len",
+    "hidden_size",
+    "latency_ms",            # median over timed iters
+    "latency_mean_ms",
+    "latency_std_ms",
+    "speedup_vs_pytorch",    # pytorch_latency / this_latency (1.0 for the pytorch row)
+    "max_abs_err_vs_ref",    # vs fp32 per-sequence reference pooling
+    "max_memory_allocated_gb",
+    "warmup",
+    "iters",
+    "oom",
+    "notes",
+]
+
 
 def timestamp() -> str:
     """UTC timestamp safe for filenames, e.g. 20260610T095837Z."""

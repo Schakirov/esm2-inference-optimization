@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M6 · Triton kernel · ESM2 L4</title>
-<link rel="stylesheet" href="assets/style.css?v=5">
+<link rel="stylesheet" href="assets/style.css?v=7">
   <script>(function(){try{var t=localStorage.getItem("esm2-theme");if(t==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}})();</script>
 </head>
 <body data-page="m6.html">
@@ -12,49 +12,156 @@
   <nav class="side" id="side"></nav>
   <main>
     <div class="phead">
-      <div class="statusline todo">○ Planned</div>
+      <div class="statusline done">● Complete · review gate passed</div>
       <h2>Milestone 6 · Triton masked-mean-pooling kernel</h2>
-      <p class="lead">Write one small custom Triton kernel that fuses the masked mean pooling step, and
-      benchmark it honestly against the PyTorch implementation — validated for correctness against the
-      Milestone 3 reference.</p>
+      <p class="lead">A hand-written Triton kernel fuses masked mean pooling into a single
+      fp32-accumulating pass, validated against the <a href="m3.html">Milestone 3</a> reference oracle and
+      benchmarked against the PyTorch paths. It is the <b>fastest implementation in all 6 shapes</b> and
+      <b>numerically near-exact</b> — but with the honest caveat that pooling is a tiny fraction of encoder
+      time, so this does not move end-to-end throughput.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">vs eager PyTorch</div><div class="v">1.3–5.4× <small>fastest in every shape</small></div></div>
+      <div class="card"><div class="k">vs best PyTorch (einsum)</div><div class="v">1.1–1.6× <small>honest baseline</small></div></div>
+      <div class="card"><div class="k">Accuracy</div><div class="v">~1e-8 <small>err vs fp32 (bf16 paths ~1e-3)</small></div></div>
+      <div class="card"><div class="k">End-to-end impact</div><div class="v">~0 <small>pooling is ~0.08 ms of forward</small></div></div>
     </div>
 
     <section>
-      <div class="kicker">What this milestone will do</div>
-      <h2>Plan</h2>
+      <div class="kicker">What was built</div>
+      <h2>The kernel</h2>
       <ul class="clean">
-        <li><b>Fused pooling kernel.</b> Implement masked mean pooling as a single Triton kernel
-        (mask-aware reduction over the sequence axis) to avoid intermediate allocations and extra passes.</li>
-        <li><b>Correctness gate first.</b> The kernel must match the fp32 eager reference from
-        <a href="m3.html">Milestone 3</a> within documented tolerances before any speed number is reported.</li>
-        <li><b>Honest benchmark.</b> Compare against the PyTorch pooling path across the shape matrix;
-        report where it wins, ties, or loses.</li>
+        <li><code>src/esm2_perf/triton_pooling.py</code> — <code>triton_masked_mean_pool</code> + the
+        <code>@triton.jit</code> kernel. Grid <code>(B, ⌈H/BLOCK_H⌉)</code>; each program owns one batch
+        row and a block of hidden columns, streams over the sequence axis in <code>BLOCK_T</code> chunks,
+        accumulating the masked sum and token count in fp32, then divides (count clamped to 1 so
+        all-padding rows pool to zero, not NaN).</li>
+        <li><code>scripts/05_bench_triton_pooling.py</code> — benchmarks <code>pytorch</code> (vectorized),
+        <code>einsum</code>, <code>compiled</code>, and <code>triton</code>, recording latency, speedup,
+        and max abs error vs the fp32 reference.</li>
+        <li>8 GPU+Triton tests against the M3 per-sequence oracle (53 tests pass total; Triton tests skip
+        on CPU-only machines).</li>
+      </ul>
+    </section>
+
+    <section id="results">
+      <div class="kicker">Full data · 24 cells</div>
+      <h2>Pooling results</h2>
+      <p>Source: <code>results/raw/triton_pooling_20260613T162844Z.csv</code> (bf16, hidden 1280). Latency
+      is the median over 50 iters; <code>speedup</code> is vs the eager vectorized <code>pytorch</code>
+      row at the same shape; <code>err</code> is max abs error vs the fp32 reference.</p>
+      <div class="controls">
+        <span style="color:var(--faint);font-size:12px;margin-right:4px">impl:</span>
+        <button data-f="all" class="on">all</button>
+        <button data-f="pytorch">pytorch</button>
+        <button data-f="einsum">einsum</button>
+        <button data-f="compiled">compiled</button>
+        <button data-f="triton">triton</button>
+      </div>
+      <div class="tablewrap">
+        <table id="resTable">
+          <thead><tr>
+            <th>impl</th><th class="num">seq_len</th><th class="num">batch</th>
+            <th class="num">latency ms</th><th class="num">speedup</th><th class="num">err vs fp32</th>
+          </tr></thead>
+          <tbody id="resBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="kicker">What the benchmark says</div>
+      <h2>Key takeaways</h2>
+      <ul class="clean">
+        <li><b>Fastest and most accurate at once.</b> Triton wins every cell, and because it accumulates
+        in fp32 its output is essentially the fp32 reference (err ~1e-8) while bf16 PyTorch pooling carries
+        ~1e-3. No speed/accuracy trade-off here.</li>
+        <li><b>Read the 5.4× honestly.</b> The eager vectorized <code>masked_mean_pool</code> materializes
+        a full <code>(B,T,H)</code> temporary and is memory-bound — at seq 512 / batch 32 it balloons to
+        0.46 ms. Against the <em>best</em> PyTorch option (usually <code>einsum</code>, no temporary),
+        Triton is a more modest, consistent <b>1.1×–1.6×</b>.</li>
+        <li><b>einsum and compiled cross over.</b> Slower than the simple vectorized path at small shapes
+        (fixed overhead on a ~0.1 ms op), faster at the large memory-bound shapes. <code>torch.compile</code>
+        does not help a tiny pointwise reduction — the same overhead story as
+        <a href="m5.html">Milestone 5</a>.</li>
+        <li><b>Triton latency is nearly flat</b> (~0.073–0.085 ms) until the largest cell (0.39 ms) — it is
+        launch/overhead-bound below that.</li>
       </ul>
     </section>
 
     <section>
-      <div class="kicker">Planned outputs</div>
-      <h2>Artifacts</h2>
-      <ul class="clean">
-        <li><code>src/esm2_perf/triton_pooling.py</code> — the Triton kernel + Python wrapper.</li>
-        <li>Unit tests asserting numerical agreement with the reference pooling.</li>
-        <li><code>scripts/05_bench_triton_pooling.py</code> + a timestamped CSV.</li>
-      </ul>
+      <div class="kicker">Honest framing</div>
+      <h2>Fast, correct — and end-to-end irrelevant</h2>
       <div class="note warn">
-        <div class="h">No overclaiming</div>
-        <p>The custom kernel is <em>not</em> claimed to be universally faster than PyTorch. The L4's Ada
-        compute capability (8.9) and Triton 3.7.0 set the ceiling; results are reported as measured, wins
-        and losses alike.</p>
-      </div>
-      <div class="note">
-        <div class="h">Key takeaways</div>
-        <p>To be populated once this milestone runs and passes its review gate.</p>
+        <div class="h">Pooling is ~0.08 ms of a ~25–225 ms forward</div>
+        <p>None of these speedups move pipeline throughput. The kernel earns its place as a correct,
+        unit-tested Triton reduction validated against an independent oracle, and as a pooling path that is
+        both faster and ~5 orders of magnitude more accurate than default bf16 pooling — useful if pooled
+        embeddings are stored and compared downstream. It is <em>not</em> a claim that a custom kernel is
+        the right tool for this op in a real pipeline. It is also not autotuned (fixed block sizes), so the
+        largest-cell number may have room left.</p>
       </div>
     </section>
 
     <div class="pager" id="pager"></div>
   </main>
 </div>
-<script src="assets/nav.js?v=6"></script>
+
+<script>
+// Pooling matrix (from results/raw/triton_pooling_20260613T162844Z.csv); bf16, hidden 1280
+// [impl, seq_len, batch, latency_ms, speedup_vs_pytorch, err_vs_fp32]
+const ROWS = [
+  ["pytorch", 128, 8,  0.09744, 1.0,   1.59e-3],
+  ["einsum",  128, 8,  0.13210, 0.738, 1.59e-3],
+  ["compiled",128, 8,  0.12448, 0.783, 9.745e-4],
+  ["triton",  128, 8,  0.07578, 1.286, 2.98e-8],
+  ["pytorch", 128, 32, 0.10035, 1.0,   1.963e-3],
+  ["einsum",  128, 32, 0.13568, 0.740, 1.963e-3],
+  ["compiled",128, 32, 0.12902, 0.778, 9.745e-4],
+  ["triton",  128, 32, 0.07270, 1.380, 2.98e-8],
+  ["pytorch", 512, 8,  0.09933, 1.0,   1.382e-3],
+  ["einsum",  512, 8,  0.13517, 0.735, 1.382e-3],
+  ["compiled",512, 8,  0.13824, 0.719, 1.123e-3],
+  ["triton",  512, 8,  0.07579, 1.311, 7.451e-9],
+  ["pytorch", 512, 32, 0.45774, 1.0,   1.382e-3],
+  ["einsum",  512, 32, 0.13824, 3.311, 1.382e-3],
+  ["compiled",512, 32, 0.14949, 3.062, 1.123e-3],
+  ["triton",  512, 32, 0.08499, 5.386, 2.98e-8],
+  ["pytorch", 1022,8,  0.11571, 1.0,   6.463e-4],
+  ["einsum",  1022,8,  0.13926, 0.831, 6.463e-4],
+  ["compiled",1022,8,  0.12493, 0.926, 6.046e-4],
+  ["triton",  1022,8,  0.07578, 1.527, 1.49e-8],
+  ["pytorch", 1022,32, 1.05062, 1.0,   1.159e-3],
+  ["einsum",  1022,32, 0.43371, 2.422, 1.159e-3],
+  ["compiled",1022,32, 0.48026, 2.188, 6.826e-4],
+  ["triton",  1022,32, 0.38907, 2.700, 2.235e-8],
+];
+const body=document.getElementById('resBody');
+function render(filter){
+  body.innerHTML='';
+  ROWS.filter(r=>filter==='all'||r[0]===filter).forEach(r=>{
+    const isTri = r[0]==='triton';
+    const spd = r[4]===1.0 ? '1.00×'
+      : '<b'+(r[4]>=2?' style="color:var(--accent)"':'')+'>'+r[4].toFixed(2)+'×</b>';
+    const tr=document.createElement('tr');
+    if(isTri) tr.style.fontWeight='600';
+    tr.innerHTML=
+      `<td>${r[0]}</td><td class="num">${r[1]}</td><td class="num">${r[2]}</td>`+
+      `<td class="num">${r[3].toFixed(3)}</td><td class="num">${spd}</td>`+
+      `<td class="num">${r[5].toExponential(1)}</td>`;
+    body.appendChild(tr);
+  });
+}
+render('all');
+document.querySelectorAll('.controls button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.controls button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    render(b.dataset.f);
+  });
+});
+</script>
+<script src="assets/nav.js?v=7"></script>
 </body>
 </html>
