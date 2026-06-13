@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M1 · Environment · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="m1.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="statusline done">● Complete · review gate passed</div>
+      <h2>Milestone 1 · Environment &amp; GPU check</h2>
+      <p class="lead">A self-contained, gracefully-degrading environment probe that records the exact
+      stack benchmarks run on, captured to a small diffable text artifact. The first executable,
+      GPU-touching step.</p>
+    </div>
+
+    <section>
+      <div class="kicker">What was built</div>
+      <h2><code>scripts/00_check_environment.py</code></h2>
+      <ul class="clean">
+        <li>Prints system info, PyTorch/CUDA details (version, availability, cuDNN), per-device GPU
+        properties (name, compute capability, total/allocated/reserved memory, SM count), bf16 support,
+        selected package versions, and an <code>nvidia-smi</code> CSV snapshot.</li>
+        <li>Fails gracefully — a missing torch, no CUDA device, or absent <code>nvidia-smi</code> produce
+        readable messages rather than tracebacks, so the repo is inspectable on CPU-only hosts.</li>
+        <li><code>--output</code> writes the report to a file (creating parent dirs); saved to
+        <code>results/raw/environment.txt</code>.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Detected stack (this run)</div>
+      <h2>The machine</h2>
+      <table>
+        <tbody>
+          <tr><th>GPU</th><td>NVIDIA L4 — Ada, compute capability 8.9, 58 SMs, bf16 supported</td></tr>
+          <tr><th>VRAM</th><td>24 GB board (23034 MiB <code>nvidia-smi</code> / 22.04 GiB visible to CUDA)</td></tr>
+          <tr><th>Driver</th><td>595.71.05</td></tr>
+          <tr><th>Python</th><td>3.12.3</td></tr>
+          <tr><th>PyTorch</th><td>2.12.0+cu130 · CUDA 13.0 · cuDNN 92000</td></tr>
+          <tr><th>transformers / triton</th><td>5.10.2 / 3.7.0</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="kicker">Key takeaways</div>
+      <h2>What this milestone established</h2>
+      <ul class="clean">
+        <li><b>The GPU path is viable.</b> CUDA is available and reports the L4 with bf16 hardware
+        support, confirming the benchmark path for later milestones works.</li>
+        <li><b>Reproducibility anchor exists.</b> One diffable artifact ties every future number to a
+        known Python / PyTorch / CUDA / GPU / package combination.</li>
+        <li><b>The ~22 GiB vs 23034 MiB gap is expected.</b> PyTorch reports memory visible to the
+        runtime; <code>nvidia-smi</code> reports board total. The difference is driver/runtime
+        reservation, not an error.</li>
+        <li><b>The L4 is an inference GPU.</b> Ada generation, 72 W class, power-efficient — which is
+        exactly why ESM2 embedding throughput on it is a realistic, interesting target.</li>
+      </ul>
+      <div class="note warn">
+        <div class="h">Limitation at this gate</div>
+        <p>No ESM2 weights were downloaded yet, so the transformers ESM2 code path was <em>not</em> yet
+        validated; a model-load failure could still surface in Milestone 2 (it did not).</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

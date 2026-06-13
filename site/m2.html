@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M2 · Baseline · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="m2.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="statusline done">● Complete · review gate passed</div>
+      <h2>Milestone 2 · Baseline ESM2 inference benchmark</h2>
+      <p class="lead">A CUDA-event-timed, OOM-safe benchmark that loads ESM2-650M and sweeps
+      bf16/fp16 × seq_len {128, 256, 512, 1022} × batch {1, 2, 4, 8, 16} — a 40-cell matrix — recording
+      latency, real-token / sequence throughput, and peak memory. Same-length batches mean there is no
+      intra-batch padding here: these are the clean, no-waste reference latencies.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">Peak throughput</div><div class="v">~22k <small>real tokens/sec</small></div></div>
+      <div class="card"><div class="k">Latency floor</div><div class="v">~20 <small>ms (overhead-bound)</small></div></div>
+      <div class="card"><div class="k">Peak memory</div><div class="v">2.0 <small>GB of 24 GB</small></div></div>
+      <div class="card"><div class="k">Matrix</div><div class="v">40 <small>cells, 0 OOM</small></div></div>
+    </div>
+
+    <section>
+      <div class="kicker">What was built</div>
+      <h2>Benchmark driver &amp; library modules</h2>
+      <ul class="clean">
+        <li><code>src/esm2_perf/sequences.py</code> — deterministic synthetic amino-acid sequences.</li>
+        <li><code>src/esm2_perf/timing.py</code> — <code>time_cuda()</code> CUDA-event timing (warmup + per-iter sync).</li>
+        <li><code>src/esm2_perf/results.py</code> — CSV schema + schema-validated writer + timestamped paths.</li>
+        <li><code>scripts/01_bench_baseline.py</code> — CLI driver with <code>--quick</code> and full matrix flags.</li>
+        <li>14 fast unit tests (<code>tests/test_sequences.py</code>, <code>tests/test_results.py</code>).</li>
+      </ul>
+    </section>
+
+    <section id="results">
+      <div class="kicker">Full data · 40 cells</div>
+      <h2>Baseline results matrix</h2>
+      <p>Source: <code>results/raw/baseline_20260610T101812Z.csv</code>. Median latency is the headline.
+      <code>actual_tokens</code> includes the two ESM2 special tokens (<code>&lt;cls&gt;</code>/<code>&lt;eos&gt;</code>),
+      so e.g. seq_len 128 → 130 tokens/sequence.</p>
+      <div class="controls">
+        <span style="color:var(--faint);font-size:12px;margin-right:4px">dtype:</span>
+        <button data-f="all" class="on">all</button>
+        <button data-f="bf16">bf16</button>
+        <button data-f="fp16">fp16</button>
+      </div>
+      <div class="tablewrap">
+        <table id="resTable">
+          <thead><tr>
+            <th>dtype</th><th class="num">batch</th><th class="num">seq_len</th><th class="num">tokens</th>
+            <th class="num">latency ms</th><th class="num">±std</th><th class="num">tok/sec</th>
+            <th class="num">seq/sec</th><th class="num">peak GB</th>
+          </tr></thead>
+          <tbody id="resBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="kicker">What the baseline says</div>
+      <h2>Key takeaways</h2>
+      <ul class="clean">
+        <li><b>Overhead floor.</b> At small total work (seq 128, batch 1–2) latency is pinned near
+        ~20 ms regardless of token count — the regime is launch/overhead-bound, not compute-bound.</li>
+        <li><b>Throughput saturates.</b> Real-token throughput climbs with batch/length and plateaus
+        around 21–22k tok/s, then dips slightly at the largest cells as attention's O(L²) cost grows.</li>
+        <li><b>bf16 ≈ fp16.</b> Within noise on Ada Tensor Cores; bf16 marginally faster at the largest
+        shapes. Memory is identical (both 2-byte weights). Numerical divergence — not throughput — is the
+        story, and that's <a href="m3.html">Milestone 3</a>.</li>
+        <li><b>Far from memory-bound.</b> Peak ~2.0 GB of 24 GB; no OOM in the whole matrix. Larger
+        batches/lengths are headroom for later milestones.</li>
+        <li><b>Upper-bound caveat.</b> Numbers are encoder-forward-only — no tokenization, pooling, or
+        I/O — so a real embedding pipeline will be slower.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">An honest war story</div>
+      <h2>A real measurement bug, found &amp; fixed</h2>
+      <div class="note warn">
+        <div class="h">Cross-dtype peak-memory contamination</div>
+        <p>The first run reported fp16 peak memory (~2.4 GB) as roughly double bf16 (~1.2 GB), despite
+        both storing 2-byte weights. Root cause: the bf16 model wasn't released before the fp16 model
+        loaded, so the second dtype's peak counted <em>both</em> resident weight sets. Fix: explicitly
+        free the previous model (<code>del; gc.collect(); empty_cache(); synchronize()</code>) between
+        dtypes. After the fix both dtypes report identical ~1.2 GB at equal shapes — exactly the kind of
+        artifact that silently inflates a memory comparison.</p>
+      </div>
+      <div class="note">
+        <div class="h">Encoder vs LM head</div>
+        <p>Loaded via <code>AutoModel</code> (the <code>EsmModel</code> encoder); we read only
+        <code>last_hidden_state</code>. The <code>lm_head.*</code> reported UNEXPECTED and the randomly
+        initialized <code>pooler.*</code> reported MISSING at load are both harmless and intentionally unused.</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+
+<script>
+// Full 40-cell baseline matrix (from results/raw/baseline_20260610T101812Z.csv)
+const ROWS = [
+  ["bf16",1,128,130,20.1687,1.3377,6445.63,49.582,1.2277],
+  ["bf16",2,128,260,19.6004,0.252,13265.05,102.039,1.233],
+  ["bf16",4,128,520,25.004,0.1945,20796.7,159.975,1.2463],
+  ["bf16",8,128,1040,49.2293,0.8629,21125.62,162.505,1.2702],
+  ["bf16",16,128,2080,98.0992,1.2077,21203.03,163.1,1.3198],
+  ["bf16",1,256,258,19.9639,0.2449,12923.32,50.09,1.233],
+  ["bf16",2,256,516,25.4822,0.2015,20249.4,78.486,1.2462],
+  ["bf16",4,256,1032,49.1546,0.7917,20995.0,81.376,1.2699],
+  ["bf16",8,256,2064,97.898,1.3711,21083.17,81.718,1.3191],
+  ["bf16",16,256,4128,226.0347,1.2638,18262.68,70.786,1.4176],
+  ["bf16",1,512,514,25.2155,0.2381,20384.3,39.658,1.2462],
+  ["bf16",2,512,1028,49.0639,0.3993,20952.25,40.763,1.2698],
+  ["bf16",4,512,2056,99.2251,1.134,20720.57,40.312,1.3188],
+  ["bf16",8,512,4112,227.7801,0.7931,18052.5,35.122,1.4169],
+  ["bf16",16,512,8224,514.731,0.8658,15977.28,31.084,1.613],
+  ["bf16",1,1022,1024,46.4604,0.2748,22040.27,21.524,1.2697],
+  ["bf16",2,1022,2048,101.3719,0.4448,20202.84,19.729,1.3185],
+  ["bf16",4,1022,4096,227.6557,1.0026,17992.08,17.57,1.4162],
+  ["bf16",8,1022,8192,518.636,1.4399,15795.28,15.425,1.6116],
+  ["bf16",16,1022,16384,1066.4642,0.9528,15362.92,15.003,2.0023],
+  ["fp16",1,128,130,20.1267,0.3172,6459.08,49.685,1.2277],
+  ["fp16",2,128,260,20.9915,0.7835,12385.97,95.277,1.233],
+  ["fp16",4,128,520,26.6522,0.3172,19510.61,150.082,1.2463],
+  ["fp16",8,128,1040,51.5415,0.9889,20177.91,155.215,1.2702],
+  ["fp16",16,128,2080,101.4769,2.5086,20497.28,157.671,1.3198],
+  ["fp16",1,256,258,20.2711,0.4554,12727.48,49.331,1.233],
+  ["fp16",2,256,516,28.0335,0.5576,18406.53,71.343,1.2462],
+  ["fp16",4,256,1032,51.0874,1.1856,20200.69,78.297,1.2699],
+  ["fp16",8,256,2064,101.7318,2.0463,20288.63,78.638,1.3191],
+  ["fp16",16,256,4128,231.7363,0.4506,17813.35,69.044,1.4176],
+  ["fp16",1,512,514,27.2174,0.5848,18884.97,36.741,1.2462],
+  ["fp16",2,512,1028,51.2558,0.4636,20056.26,39.02,1.2698],
+  ["fp16",4,512,2056,103.4424,1.4976,19875.79,38.669,1.3188],
+  ["fp16",8,512,4112,234.0045,0.5706,17572.31,34.187,1.4169],
+  ["fp16",16,512,8224,530.0173,2.3059,15516.48,30.188,1.613],
+  ["fp16",1,1022,1024,47.8915,0.3825,21381.68,20.881,1.2697],
+  ["fp16",2,1022,2048,106.412,1.6578,19245.95,18.795,1.3185],
+  ["fp16",4,1022,4096,235.2666,1.5733,17410.04,17.002,1.4162],
+  ["fp16",8,1022,8192,533.844,2.4306,15345.31,14.986,1.6116],
+  ["fp16",16,1022,16384,1097.4495,1.3437,14929.16,14.579,2.0023],
+];
+const body=document.getElementById('resBody');
+function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':n.toFixed(n<100?2:1)}
+function render(filter){
+  body.innerHTML='';
+  ROWS.filter(r=>filter==='all'||r[0]===filter).forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=
+      `<td>${r[0]}</td><td class="num">${r[1]}</td><td class="num">${r[2]}</td>`+
+      `<td class="num">${r[3]}</td><td class="num">${r[4].toFixed(1)}</td>`+
+      `<td class="num">${r[5].toFixed(2)}</td><td class="num">${fmt(r[6])}</td>`+
+      `<td class="num">${r[7].toFixed(1)}</td><td class="num">${r[8].toFixed(2)}</td>`;
+    body.appendChild(tr);
+  });
+}
+render('all');
+document.querySelectorAll('.controls button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.controls button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    render(b.dataset.f);
+  });
+});
+</script>
+<script src="assets/nav.js"></script>
+</body>
+</html>

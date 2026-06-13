@@ -81,4 +81,6 @@ column -s, -t results/raw/baseline_20260610T101812Z.csv | less -S
 
 ## Human notes
 
-<!-- Leave this section for the reviewer. -->
+Reviewed Milestone 2. Results are plausible for L4: low-batch cases are overhead-bound, throughput improves with batching, and the largest 
+  sequence-length/batch-size cases show the expected attention-related slowdown. It is a baseline for later correctness, batching, compile, profiling, and
+  Triton experiments.

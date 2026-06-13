@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M5 · torch.compile · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="m5.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="statusline todo">○ Planned</div>
+      <h2>Milestone 5 · <code>torch.compile</code> &amp; static shapes</h2>
+      <p class="lead">Test whether graph compilation helps ESM2 encoder inference on the L4, and under
+      what shape regime — being careful to separate one-time compile cost from steady-state speed.</p>
+    </div>
+
+    <section>
+      <div class="kicker">What this milestone will do</div>
+      <h2>Plan</h2>
+      <ul class="clean">
+        <li><b>Compile vs eager.</b> Benchmark <code>torch.compile</code>'d inference against the eager
+        baseline across the same shape matrix.</li>
+        <li><b>Warmup honesty.</b> Explicitly separate compilation/warmup time from steady-state timed
+        iterations — counting compile time as inference time is a classic misleading artifact.</li>
+        <li><b>Static vs dynamic shapes.</b> Examine recompilation behavior when sequence length / batch
+        size vary, and whether fixing shapes (padding to buckets) avoids recompiles.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Planned outputs</div>
+      <h2>Artifacts</h2>
+      <ul class="clean">
+        <li><code>scripts/04_bench_compile.py</code> — compile-vs-eager benchmark.</li>
+        <li>A timestamped compile CSV under <code>results/raw/</code>.</li>
+      </ul>
+      <div class="note warn">
+        <div class="h">No overclaiming</div>
+        <p>If <code>torch.compile</code> does not beat eager PyTorch on this model/hardware, that result
+        is reported as measured and the reason documented in <code>docs/LIMITATIONS.md</code>.</p>
+      </div>
+      <div class="note">
+        <div class="h">Key takeaways</div>
+        <p>To be populated once this milestone runs and passes its review gate.</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · ESM2 L4 Inference Optimization</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="index.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="tag">portfolio · ML performance engineering</div>
+      <h2>Making <span class="em">ESM2</span> protein embeddings fast &amp; correct on an NVIDIA&nbsp;L4</h2>
+      <p class="lead">A reproducible study of inference performance for the protein-language model
+      <code>facebook/esm2_t33_650M_UR50D</code> (650M params) on a single power-efficient L4 GPU.
+      The work proceeds through ten human-reviewed milestones (0–9) — honest baselines, correctness
+      checks, batching/padding analysis, <code>torch.compile</code>, a custom Triton pooling kernel,
+      and profiler evidence — prioritizing reproducibility over headline numbers.</p>
+      <div class="pillrow">
+        <span class="pill">Model: <b>ESM2-650M</b></span>
+        <span class="pill">GPU: <b>NVIDIA L4 · 24&nbsp;GB · Ada</b></span>
+        <span class="pill">Workload: <b>masked mean-pooled embeddings</b></span>
+        <span class="pill">Status: <b>2 / 9 milestones complete</b></span>
+        <span class="pill">Snapshot: <b>2026-06-12</b></span>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">Peak throughput</div><div class="v">~22k <small>real tokens/sec</small></div></div>
+      <div class="card"><div class="k">Latency floor</div><div class="v">~20 <small>ms (overhead-bound)</small></div></div>
+      <div class="card"><div class="k">Peak memory</div><div class="v">2.0 <small>GB of 24 GB</small></div></div>
+      <div class="card"><div class="k">Baseline matrix</div><div class="v">40 <small>cells, 0 OOM</small></div></div>
+    </div>
+
+    <section id="why">
+      <div class="kicker">The task setting</div>
+      <h2>Why this project exists</h2>
+      <p>Protein-language models like ESM2 are a standard front-end for biotech ML: you embed a
+      protein sequence once and reuse the vector for downstream tasks (function prediction, variant
+      effect, structure, retrieval). The embedding step is pure inference and is run over
+      <em>millions</em> of sequences, so its throughput and cost matter directly.</p>
+      <p>This project documents the unglamorous-but-real engineering of making that step fast
+      <em>and</em> correct on commodity inference hardware. The L4 is a common, power-efficient
+      inference GPU (72&nbsp;W class), which makes ESM2 embedding throughput on it a realistic target.</p>
+      <h3>Why ESM2 &amp; protein embeddings specifically</h3>
+      <ul class="clean">
+        <li><b>Open &amp; standard</b> — widely used, available through Hugging Face <code>transformers</code>.</li>
+        <li><b>Representative workload</b> — variable-length sequences, padding, attention, per-token
+        hidden states, and a pooling step to produce one vector per protein.</li>
+        <li><b>Exposes classic perf themes</b> — dtype choice, batching, padding waste, static vs
+        dynamic shapes, kernel fusion.</li>
+      </ul>
+      <div class="note warn">
+        <div class="h">What this project does <em>not</em> claim</div>
+        <p>It does not claim to beat vendor-optimized stacks (TensorRT, FlashAttention kernels) unless
+        explicitly benchmarked; it does not claim the custom Triton kernel is universally faster than
+        PyTorch; and all numbers are specific to this L4 + software stack and a synthetic sequence
+        distribution. Negative results are reported honestly.</p>
+      </div>
+    </section>
+
+    <section id="environment">
+      <div class="kicker">Reproducibility anchor</div>
+      <h2>Hardware &amp; environment</h2>
+      <p>Captured programmatically by <code>scripts/00_check_environment.py</code> so every later
+      number can be tied to a known stack. Snapshot taken 2026-06-10.</p>
+      <table>
+        <tbody>
+          <tr><th>Host</th><td>AWS <code>g6.2xlarge</code></td></tr>
+          <tr><th>GPU</th><td>NVIDIA L4 — Ada, compute capability 8.9, 58 SMs, bf16 supported</td></tr>
+          <tr><th>VRAM</th><td>24 GB board (23034 MiB <code>nvidia-smi</code> / 22.04 GiB visible to CUDA)</td></tr>
+          <tr><th>Driver / CUDA</th><td>595.71.05 / 13.2 (smi); runtime CUDA 13.0, cuDNN 92000</td></tr>
+          <tr><th>Python</th><td>3.12.3 (<code>.venv</code>)</td></tr>
+          <tr><th>PyTorch</th><td>2.12.0+cu130</td></tr>
+          <tr><th>transformers</th><td>5.10.2</td></tr>
+          <tr><th>triton</th><td>3.7.0</td></tr>
+          <tr><th>others</th><td>accelerate 1.13.0 · safetensors 0.8.0 · numpy 2.4.6 · pandas 3.0.3 · biopython 1.87</td></tr>
+        </tbody>
+      </table>
+      <div class="note">
+        <div class="h">Why ~22 GiB vs 23034 MiB?</div>
+        <p>PyTorch reports memory visible to the runtime; <code>nvidia-smi</code> reports board total.
+        The gap is driver/runtime reservation, not a bug.</p>
+      </div>
+    </section>
+
+    <section id="methodology">
+      <div class="kicker">How numbers are produced</div>
+      <h2>Methodology &amp; design principles</h2>
+      <ul class="clean">
+        <li><b>CUDA events, not wall clock.</b> Each timed iteration is bracketed by a
+        <code>torch.cuda.Event</code> pair; we <code>synchronize()</code> then read
+        <code>elapsed_time</code>. Kernel launches are async, so <code>time.time()</code> would measure
+        launch overhead, not device execution.</li>
+        <li><b>Warmup + steady state.</b> Untimed warmup iterations absorb lazy CUDA init and
+        cuDNN/cuBLAS autotuning; median latency is the headline (robust to outliers), with mean/std also recorded.</li>
+        <li><b>Honest memory.</b> <code>reset_peak_memory_stats()</code> before timing,
+        <code>max_memory_allocated()</code> after; models are explicitly freed between dtypes so peaks aren't contaminated.</li>
+        <li><b>Real vs padded tokens.</b> Throughput is reported as <em>real amino-acid tokens/sec</em>,
+        not just padded compute tokens — padding waste is a first-class metric.</li>
+        <li><b>Correctness first.</b> Optimized paths are validated against an fp32 eager reference with
+        documented tolerances before any speed claim.</li>
+        <li><b>Graceful failure.</b> OOM is caught per cell and recorded (<code>oom=True</code>), never masked as success.</li>
+        <li><b>Repo hygiene.</b> No weights, venvs, caches, secrets, or large traces committed — only small summarized artifacts. Commit locally, never push.</li>
+      </ul>
+    </section>
+
+    <section id="roadmap">
+      <div class="kicker">The plan · click any milestone for its own page</div>
+      <h2>Ten-milestone roadmap</h2>
+      <p class="lead">Each major milestone ends at a human-review gate; work stops and waits for explicit
+      approval before the next begins. A review note is written at every gate.</p>
+
+      <div class="ms"><div class="num">0</div>
+        <div class="body"><h4><a href="m0.html">Safety, inspection, scaffold</a></h4>
+        <p>Directory structure, <code>pyproject.toml</code>, README draft, <code>.gitignore</code>, the full plan.</p></div>
+        <span class="badge b-done">done</span></div>
+      <div class="ms"><div class="num">1</div>
+        <div class="body"><h4><a href="m1.html">Environment &amp; GPU check</a></h4>
+        <p>Reproducible probe &rarr; <code>results/raw/environment.txt</code>.</p></div>
+        <span class="badge b-done">done</span></div>
+      <div class="ms"><div class="num">2</div>
+        <div class="body"><h4><a href="m2.html">Baseline ESM2 inference</a></h4>
+        <p>CUDA-event-timed 40-cell sweep; latency, throughput, memory.</p></div>
+        <span class="badge b-done">done</span></div>
+      <div class="ms"><div class="num">3</div>
+        <div class="body"><h4><a href="m3.html">Correctness &amp; pooling harness</a></h4>
+        <p>Masked mean pooling; fp16/bf16 vs fp32 reference with documented tolerances.</p></div>
+        <span class="badge b-next">next</span></div>
+      <div class="ms"><div class="num">4</div>
+        <div class="body"><h4><a href="m4.html">Variable-length batching / padding</a></h4>
+        <p>Quantify padding waste; batching strategies.</p></div>
+        <span class="badge b-todo">planned</span></div>
+      <div class="ms"><div class="num">5</div>
+        <div class="body"><h4><a href="m5.html"><code>torch.compile</code> &amp; static shapes</a></h4>
+        <p>Compile warmup vs steady-state; static-shape behavior.</p></div>
+        <span class="badge b-todo">planned</span></div>
+      <div class="ms"><div class="num">6</div>
+        <div class="body"><h4><a href="m6.html">Triton masked-mean-pooling kernel</a></h4>
+        <p>Custom kernel + tests + benchmark; reported as measured.</p></div>
+        <span class="badge b-todo">planned</span></div>
+      <div class="ms"><div class="num">7</div>
+        <div class="body"><h4><a href="m7.html">Profiling notes</a></h4>
+        <p>Profiler evidence &rarr; <code>docs/PROFILING.md</code>.</p></div>
+        <span class="badge b-todo">planned</span></div>
+      <div class="ms"><div class="num">8</div>
+        <div class="body"><h4><a href="m8.html">Result processing &amp; portfolio README</a></h4>
+        <p>Summarize results; populate <code>docs/RESULTS.md</code> and the README.</p></div>
+        <span class="badge b-todo">planned</span></div>
+      <div class="ms"><div class="num">9</div>
+        <div class="body"><h4><a href="m9.html">Final cleanup</a></h4>
+        <p>Tests / format / status sweep; final commit.</p></div>
+        <span class="badge b-todo">planned</span></div>
+    </section>
+
+    <footer>
+      <p>Generated logbook for the <b>esm2-l4-inference-optimization</b> repository · snapshot 2026-06-12.
+      Self-contained static site (no external dependencies). Source of truth lives in
+      <code>docs/PLAN.md</code>, <code>docs/milestones/</code>, and <code>results/raw/</code>.</p>
+    </footer>
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

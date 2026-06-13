@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M4 · Batching &amp; padding · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="m4.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="statusline todo">○ Planned</div>
+      <h2>Milestone 4 · Variable-length batching &amp; padding</h2>
+      <p class="lead">Measure what real, mixed-length protein batches cost. The baseline used
+      same-length batches with zero padding by construction; this milestone introduces padding waste as
+      a first-class, quantified metric.</p>
+    </div>
+
+    <section>
+      <div class="kicker">What this milestone will do</div>
+      <h2>Plan</h2>
+      <ul class="clean">
+        <li><b>Define padding waste.</b> Split throughput into <em>padded compute tokens/sec</em> vs
+        <em>real amino-acid tokens/sec</em>, and report the fraction of compute spent on pad tokens.</li>
+        <li><b>Batching strategies.</b> Compare naive padding-to-max against length-aware approaches
+        (e.g. length bucketing / sorting) on realistic length distributions.</li>
+        <li><b>Realistic inputs.</b> Move beyond uniform-random lengths toward distributions that
+        resemble real proteomes, since length statistics drive padding overhead.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Planned outputs</div>
+      <h2>Artifacts</h2>
+      <ul class="clean">
+        <li><code>src/esm2_perf/batching.py</code> — batching / bucketing utilities.</li>
+        <li><code>scripts/03_bench_batching.py</code> — padding-efficiency benchmark.</li>
+        <li>A timestamped batching CSV under <code>results/raw/</code>.</li>
+      </ul>
+      <div class="note">
+        <div class="h">Key takeaways</div>
+        <p>To be populated once this milestone runs and passes its review gate.</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

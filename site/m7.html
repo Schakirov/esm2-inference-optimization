@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M7 · Profiling · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="m7.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="statusline todo">○ Planned</div>
+      <h2>Milestone 7 · Profiling notes</h2>
+      <p class="lead">Use the PyTorch profiler to turn the benchmark observations into evidence: where
+      time actually goes in the ESM2 encoder forward pass, and which operators dominate.</p>
+    </div>
+
+    <section>
+      <div class="kicker">What this milestone will do</div>
+      <h2>Plan</h2>
+      <ul class="clean">
+        <li><b>Operator-level breakdown.</b> Profile the forward pass to attribute time to attention,
+        matmuls, layernorm, and the pooling step.</li>
+        <li><b>Explain the baseline shape.</b> Ground the observed effects — the ~20 ms overhead floor at
+        small work, the O(L²) attention cost at long sequences — in profiler data rather than inference.</li>
+        <li><b>Keep traces small.</b> Capture summarized profiler output; large raw traces are never
+        committed (repo-hygiene rule).</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Planned outputs</div>
+      <h2>Artifacts</h2>
+      <ul class="clean">
+        <li><code>scripts/06_profile_pytorch.py</code> — profiling driver.</li>
+        <li><code>docs/PROFILING.md</code> — TL;DR-first writeup with the operator breakdown and conclusions.</li>
+      </ul>
+      <div class="note">
+        <div class="h">Key takeaways</div>
+        <p>To be populated once this milestone runs and passes its review gate.</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

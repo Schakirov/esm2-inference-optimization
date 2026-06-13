@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M6 · Triton kernel · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="m6.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="statusline todo">○ Planned</div>
+      <h2>Milestone 6 · Triton masked-mean-pooling kernel</h2>
+      <p class="lead">Write one small custom Triton kernel that fuses the masked mean pooling step, and
+      benchmark it honestly against the PyTorch implementation — validated for correctness against the
+      Milestone 3 reference.</p>
+    </div>
+
+    <section>
+      <div class="kicker">What this milestone will do</div>
+      <h2>Plan</h2>
+      <ul class="clean">
+        <li><b>Fused pooling kernel.</b> Implement masked mean pooling as a single Triton kernel
+        (mask-aware reduction over the sequence axis) to avoid intermediate allocations and extra passes.</li>
+        <li><b>Correctness gate first.</b> The kernel must match the fp32 eager reference from
+        <a href="m3.html">Milestone 3</a> within documented tolerances before any speed number is reported.</li>
+        <li><b>Honest benchmark.</b> Compare against the PyTorch pooling path across the shape matrix;
+        report where it wins, ties, or loses.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Planned outputs</div>
+      <h2>Artifacts</h2>
+      <ul class="clean">
+        <li><code>src/esm2_perf/triton_pooling.py</code> — the Triton kernel + Python wrapper.</li>
+        <li>Unit tests asserting numerical agreement with the reference pooling.</li>
+        <li><code>scripts/05_bench_triton_pooling.py</code> + a timestamped CSV.</li>
+      </ul>
+      <div class="note warn">
+        <div class="h">No overclaiming</div>
+        <p>The custom kernel is <em>not</em> claimed to be universally faster than PyTorch. The L4's Ada
+        compute capability (8.9) and Triton 3.7.0 set the ceiling; results are reported as measured, wins
+        and losses alike.</p>
+      </div>
+      <div class="note">
+        <div class="h">Key takeaways</div>
+        <p>To be populated once this milestone runs and passes its review gate.</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

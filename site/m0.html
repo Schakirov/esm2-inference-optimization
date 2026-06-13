@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M0 · Scaffold · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="m0.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="statusline done">● Complete · review gate passed</div>
+      <h2>Milestone 0 · Safety, inspection &amp; scaffold</h2>
+      <p class="lead">Fill the empty repository scaffold and lay out the directory structure and
+      documentation skeleton that every later milestone writes into. No model code or benchmarks yet —
+      this is the foundation and the plan.</p>
+    </div>
+
+    <section>
+      <div class="kicker">What was built</div>
+      <h2>Scaffold &amp; plan</h2>
+      <ul class="clean">
+        <li><code>pyproject.toml</code> — package metadata, <code>src/</code> layout, pytest + ruff config.</li>
+        <li><code>src/esm2_perf/__init__.py</code> — package docstring, <code>__version__</code>, roadmap of future modules.</li>
+        <li><code>README.md</code> — portfolio-shaped draft with all required headings and an explicit
+        "what this project does not claim" section.</li>
+        <li><code>docs/PLAN.md</code> — the full ten-milestone plan: detected-environment table, design
+        principles, milestone table, repo layout, review-gate list.</li>
+        <li><code>docs/{METHODOLOGY,LIMITATIONS,REPRODUCIBILITY,RESULTS}.md</code> — TL;DR-first stubs to
+        be expanded per milestone.</li>
+        <li>Directory keepers for <code>results/raw</code>, <code>results/processed</code>, <code>external</code>;
+        verified <code>.gitignore</code> excludes <code>.venv/</code>, caches, weights, and large traces.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Key takeaways</div>
+      <h2>What this milestone established</h2>
+      <ul class="clean">
+        <li><b>Structure precedes measurement.</b> Every later milestone has a defined home for code
+        (<code>src/esm2_perf/</code>, <code>scripts/</code>), data (<code>results/raw/</code>), tests, and docs.</li>
+        <li><b>Honesty is built in from the start.</b> The README's "does not claim" section and the
+        plan's review gates exist before a single number is produced.</li>
+        <li><b>Reproducibility over convenience.</b> <code>requirements.txt</code> is intentionally
+        unpinned for portability; exact installed versions are captured separately in the environment
+        artifact (Milestone 1) so any number can be tied to a known stack.</li>
+        <li><b>Repo hygiene rules.</b> No weights, venvs, caches, secrets, or large traces are ever
+        committed; work is committed locally and never pushed.</li>
+      </ul>
+      <div class="note">
+        <div class="h">Validation at this gate</div>
+        <p>Structural only — the environment script (Milestone 1) is the first executable validation.
+        Confirmed <code>.gitignore</code> excludes the virtualenv, caches, weights, and large traces.</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

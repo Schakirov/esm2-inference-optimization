@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M9 · Final cleanup · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="m9.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="statusline todo">○ Planned</div>
+      <h2>Milestone 9 · Final cleanup</h2>
+      <p class="lead">A closing sweep to leave the repository tidy, tested, and consistent — the final
+      commit before the project is considered complete.</p>
+    </div>
+
+    <section>
+      <div class="kicker">What this milestone will do</div>
+      <h2>Plan</h2>
+      <ul class="clean">
+        <li><b>Test sweep.</b> Run the full <code>pytest</code> suite and confirm everything passes.</li>
+        <li><b>Format / lint.</b> Apply ruff formatting and resolve lint findings across the codebase.</li>
+        <li><b>Status sweep.</b> Run <code>git status</code>, confirm no secrets / weights / venvs /
+        large artifacts are staged, and that docs (<code>commits/</code>, <code>milestones/</code>) are current.</li>
+        <li><b>Final commit.</b> One clean closing commit; nothing pushed.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Definition of done</div>
+      <h2>What "complete" means</h2>
+      <p>All ten milestones documented, all benchmarks reproducible from a clean checkout against the
+      captured environment, correctness validated against the fp32 reference, results summarized, and the
+      README at portfolio quality — with limitations and negative results stated honestly.</p>
+      <div class="note">
+        <div class="h">Key takeaways</div>
+        <p>To be populated once this milestone runs.</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

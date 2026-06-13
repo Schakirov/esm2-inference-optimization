@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M3 · Correctness · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="m3.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="statusline next">● Up next · awaiting human approval at the review gate</div>
+      <h2>Milestone 3 · Correctness &amp; pooling harness</h2>
+      <p class="lead">Implement masked mean pooling over real amino-acid tokens, then validate the
+      fp16/bf16 paths against an fp32 eager reference with documented numerical tolerances. This
+      establishes the correctness foundation that every later speed claim is checked against.</p>
+    </div>
+
+    <section>
+      <div class="kicker">What this milestone will do</div>
+      <h2>Plan</h2>
+      <ul class="clean">
+        <li><b>Masked mean pooling.</b> Reduce per-token hidden states to one vector per protein by
+        averaging over <em>real</em> amino-acid tokens only — excluding padding and the
+        <code>&lt;cls&gt;</code>/<code>&lt;eos&gt;</code> special tokens.</li>
+        <li><b>fp32 eager reference.</b> Establish a trusted reference output, then compare bf16 and
+        fp16 embeddings against it with explicit, documented tolerances (exact equality is not expected
+        across dtypes).</li>
+        <li><b>Implementation equivalence.</b> Validate that alternative pooling implementations agree
+        with the reference, so later optimized versions (incl. the Triton kernel) have a ground truth.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Planned outputs</div>
+      <h2>Artifacts</h2>
+      <ul class="clean">
+        <li><code>src/esm2_perf/pooling.py</code> — masked mean pooling implementation(s).</li>
+        <li><code>scripts/02_check_correctness.py</code> — dtype-vs-reference comparison driver.</li>
+        <li>Unit tests asserting pooling correctness and tolerance bounds.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Why it matters</div>
+      <h2>The point of doing this before more speed work</h2>
+      <p>The baseline (<a href="m2.html">Milestone 2</a>) showed bf16 ≈ fp16 on <em>throughput</em> — but
+      throughput parity says nothing about <em>accuracy</em>. Before claiming any optimization is "free,"
+      we need a documented numerical budget: how far can a pooled embedding drift from the fp32 reference
+      and still be acceptable? Everything downstream — batching, <code>torch.compile</code>, the Triton
+      kernel — is validated against the harness built here.</p>
+      <div class="note">
+        <div class="h">Key takeaways</div>
+        <p>To be populated once this milestone runs and passes its review gate.</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>
