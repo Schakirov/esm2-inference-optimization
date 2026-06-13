@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Overview · ESM2 L4 Inference Optimization</title>
-<link rel="stylesheet" href="assets/style.css?v=8">
+<link rel="stylesheet" href="assets/style.css?v=9">
   <script>(function(){try{var t=localStorage.getItem("esm2-theme");if(t==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}})();</script>
 </head>
 <body data-page="index.html">
@@ -23,7 +23,7 @@
         <span class="pill">Model: <b>ESM2-650M</b></span>
         <span class="pill">GPU: <b>NVIDIA L4 · 24&nbsp;GB · Ada</b></span>
         <span class="pill">Workload: <b>masked mean-pooled embeddings</b></span>
-        <span class="pill">Status: <b>6 / 9 milestones complete</b></span>
+        <span class="pill">Status: <b>7 / 9 milestones complete</b></span>
         <span class="pill">Snapshot: <b>2026-06-13</b></span>
       </div>
     </div>
@@ -144,12 +144,12 @@
         <span class="badge b-done">done</span></div>
       <div class="ms"><div class="num">7</div>
         <div class="body"><h4><a href="m7.html">Profiling notes</a></h4>
-        <p>Profiler evidence &rarr; <code>docs/PROFILING.md</code>.</p></div>
-        <span class="badge b-next">next</span></div>
+        <p>Kernel-level breakdown: ~42% matmul, ~43% unfused elementwise — explains the compile win.</p></div>
+        <span class="badge b-done">done</span></div>
       <div class="ms"><div class="num">8</div>
         <div class="body"><h4><a href="m8.html">Result processing &amp; portfolio README</a></h4>
         <p>Summarize results; populate <code>docs/RESULTS.md</code> and the README.</p></div>
-        <span class="badge b-todo">planned</span></div>
+        <span class="badge b-next">next</span></div>
       <div class="ms"><div class="num">9</div>
         <div class="body"><h4><a href="m9.html">Final cleanup</a></h4>
         <p>Tests / format / status sweep; final commit.</p></div>
@@ -164,6 +164,6 @@
     <div class="pager" id="pager"></div>
   </main>
 </div>
-<script src="assets/nav.js?v=8"></script>
+<script src="assets/nav.js?v=9"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M7 · Profiling · ESM2 L4</title>
-<link rel="stylesheet" href="assets/style.css?v=8">
+<link rel="stylesheet" href="assets/style.css?v=9">
   <script>(function(){try{var t=localStorage.getItem("esm2-theme");if(t==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}})();</script>
 </head>
 <body data-page="m7.html">
@@ -12,41 +12,111 @@
   <nav class="side" id="side"></nav>
   <main>
     <div class="phead">
-      <div class="statusline todo">○ Planned</div>
+      <div class="statusline done">● Complete · review gate passed</div>
       <h2>Milestone 7 · Profiling notes</h2>
-      <p class="lead">Use the PyTorch profiler to turn the benchmark observations into evidence: where
-      time actually goes in the ESM2 encoder forward pass, and which operators dominate.</p>
+      <p class="lead"><code>torch.profiler</code> on the encoder forward (bf16, seq 512, batch 8) gives a
+      kernel-level breakdown whose self-times <b>sum to 225 ms/iter — matching the
+      <a href="m2.html">Milestone 2</a> latency</b>, which proves the attribution is honest. Time splits
+      almost evenly between <b>matmul (~42%)</b> and <b>unfused elementwise (~43%)</b> — and that
+      elementwise share is exactly the headroom <a href="m5.html"><code>torch.compile</code></a> fused.
+      The profile explains the compile win.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">Matmul</div><div class="v">42% <small>linears dominate</small></div></div>
+      <div class="card"><div class="k">Unfused elementwise</div><div class="v">43% <small>the fusion headroom</small></div></div>
+      <div class="card"><div class="k">Attention (flash)</div><div class="v">4.7% <small>not the bottleneck</small></div></div>
+      <div class="card"><div class="k">Attribution check</div><div class="v">225 <small>ms/iter = M2 latency</small></div></div>
     </div>
 
     <section>
-      <div class="kicker">What this milestone will do</div>
-      <h2>Plan</h2>
+      <div class="kicker">What was built</div>
+      <h2>Kernel-level profiler</h2>
       <ul class="clean">
-        <li><b>Operator-level breakdown.</b> Profile the forward pass to attribute time to attention,
-        matmuls, layernorm, and the pooling step.</li>
-        <li><b>Explain the baseline shape.</b> Ground the observed effects — the ~20 ms overhead floor at
-        small work, the O(L²) attention cost at long sequences — in profiler data rather than inference.</li>
-        <li><b>Keep traces small.</b> Capture summarized profiler output; large raw traces are never
-        committed (repo-hygiene rule).</li>
+        <li><code>scripts/06_profile_pytorch.py</code> — runs the forward under
+        <code>torch.profiler</code> and reports a <b>kernel-only</b> view: leaf CUDA kernels (no
+        <code>aten::</code> ops), so GPU time is not double-counted and the self-times sum to the true
+        forward latency. Kernels are rolled up into coarse categories.</li>
+        <li><code>docs/PROFILING.md</code> — the full write-up (method, breakdown, limitations).</li>
+        <li>Only the small top-ops CSV is committed; the full Chrome trace is optional
+        (<code>--trace</code>) and never committed.</li>
+      </ul>
+      <div class="note warn">
+        <div class="h">The double-counting trap</div>
+        <p><code>key_averages()</code> lists both operator events <em>and</em> the kernels they launch.
+        Summing both read ~449 ms/iter — almost exactly 2× the real forward. Filtering to leaf kernels
+        makes the total equal the measured 225 ms/iter; that equality is the proof the percentages are
+        right.</p>
+      </div>
+    </section>
+
+    <section id="results">
+      <div class="kicker">Where the 225 ms/iter goes</div>
+      <h2>By category</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>category</th><th class="num">ms/iter</th><th class="num">share</th><th>what it is</th></tr></thead>
+          <tbody>
+            <tr><td>elementwise</td><td class="num">96.4</td><td class="num">42.8%</td><td>GeLU, bias-adds, residual adds, scaling — each a separate kernel</td></tr>
+            <tr><td>matmul</td><td class="num">94.9</td><td class="num">42.2%</td><td>FFN/projection GEMMs + flash-attention</td></tr>
+            <tr><td>copy</td><td class="num">30.8</td><td class="num">13.7%</td><td>dtype casts + rotary-embedding <code>cat</code></td></tr>
+            <tr><td>softmax/norm</td><td class="num">2.8</td><td class="num">1.3%</td><td>LayerNorm (softmax is fused in flash-attn)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Top individual kernels</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>kernel</th><th class="num">ms/iter</th><th class="num">share</th><th>category</th></tr></thead>
+          <tbody>
+            <tr><td><code>cutlass … s16816gemm</code></td><td class="num">56.0</td><td class="num">24.9%</td><td>matmul</td></tr>
+            <tr><td><code>ampere … s1688gemm</code></td><td class="num">28.4</td><td class="num">12.6%</td><td>matmul</td></tr>
+            <tr><td><code>elementwise · mul</code></td><td class="num">18.2</td><td class="num">8.1%</td><td>elementwise</td></tr>
+            <tr><td><code>elementwise · add</code></td><td class="num">13.3</td><td class="num">5.9%</td><td>elementwise</td></tr>
+            <tr><td><code>direct_copy</code> (cast)</td><td class="num">12.7</td><td class="num">5.6%</td><td>copy</td></tr>
+            <tr><td><code>elementwise · erf</code> (GeLU)</td><td class="num">11.9</td><td class="num">5.3%</td><td>elementwise</td></tr>
+            <tr><td><code>flash_fwd_kernel</code> (attention)</td><td class="num">10.5</td><td class="num">4.7%</td><td>matmul</td></tr>
+            <tr><td><code>CatArrayBatchedCopy</code> (rotary)</td><td class="num">9.9</td><td class="num">4.4%</td><td>copy</td></tr>
+            <tr><td><code>vectorized_layer_norm</code></td><td class="num">2.8</td><td class="num">1.3%</td><td>softmax/norm</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="codecap">Source: <code>results/raw/profile_20260613T171924Z.csv</code> · 10 iters, per-iter values.</p>
+    </section>
+
+    <section>
+      <div class="kicker">What the profile says</div>
+      <h2>Key takeaways</h2>
+      <ul class="clean">
+        <li><b>Attribution checks out.</b> Leaf-kernel self-times sum to 225 ms/iter, equal to the
+        Milestone 2 median — the forward runs essentially serially on one stream.</li>
+        <li><b>Attention is not the bottleneck here.</b> The fused flash-attention kernel is only ~4.7%;
+        the matmul cost is the FFN/projection linears (24.9% + 12.6%). Optimizing attention further would
+        barely move this shape.</li>
+        <li><b>~43% is unfused elementwise — the fusion headroom.</b> GeLU, bias-adds, residual adds, and
+        scalings each launch their own kernel and stream activations through HBM. That is exactly what
+        <code>torch.compile</code> fuses, and it <em>explains the 1.63× compile speedup at this same
+        shape</em> in Milestone 5.</li>
+        <li><b>~14% is copies/casts</b> (rotary <code>cat</code>, dtype casts); LayerNorm ~1%. Memory is
+        ~1.4 GB of 24 GB — not capacity-bound.</li>
       </ul>
     </section>
 
     <section>
-      <div class="kicker">Planned outputs</div>
-      <h2>Artifacts</h2>
-      <ul class="clean">
-        <li><code>scripts/06_profile_pytorch.py</code> — profiling driver.</li>
-        <li><code>docs/PROFILING.md</code> — TL;DR-first writeup with the operator breakdown and conclusions.</li>
-      </ul>
+      <div class="kicker">Honest scope</div>
+      <h2>Limitations</h2>
       <div class="note">
-        <div class="h">Key takeaways</div>
-        <p>To be populated once this milestone runs and passes its review gate.</p>
+        <div class="h">Read the buckets as order-of-magnitude</div>
+        <p>The category rollup is heuristic (kernel-name substrings): the matmul-vs-rest split is robust,
+        but "elementwise" bundles activation/bias/residual/scale and "copy" bundles casts and
+        concatenations. It is eager-only, one shape (seq 512 × batch 8), on this L4 + PyTorch 2.12.0+cu130
+        stack — a compiled run, a different shape, or another GPU gives a materially different split.</p>
       </div>
     </section>
 
     <div class="pager" id="pager"></div>
   </main>
 </div>
-<script src="assets/nav.js?v=8"></script>
+<script src="assets/nav.js?v=9"></script>
 </body>
 </html>

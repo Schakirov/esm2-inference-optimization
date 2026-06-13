@@ -119,6 +119,18 @@ per-shape specialization.
 small/overhead-bound shapes often do not benefit at all. When compile does not beat eager for
 a shape, the row records it (`speedup_vs_eager < 1`) rather than hiding it.
 
+### Profiling: the kernel-level view (Milestone 7)
+
+`torch.profiler` is run with CUDA+CPU activities over warm iterations, but the reported
+breakdown deliberately uses a **kernel-only view**. `key_averages()` lists both the operator
+events (`aten::addmm`, …) and the device kernels they launch; summing both double-counts GPU
+time (we first measured ~449 ms/iter, almost exactly 2× the real forward). Filtering to leaf
+CUDA kernels (keys not starting with `aten::`/`cuda`) gives self-times that **sum to the
+measured forward latency** — the cross-check that the attribution is honest. Kernels are rolled
+up into coarse categories (matmul / elementwise / copy / norm) by name; the split is approximate
+but the matmul-vs-rest headline is robust. Only the small top-ops CSV is committed — the full
+Chrome trace is large and stays out of the repo.
+
 ### Triton kernel validation (Milestone 6)
 
 A custom kernel is only worth anything if it is correct, so the Triton masked-mean-pooling

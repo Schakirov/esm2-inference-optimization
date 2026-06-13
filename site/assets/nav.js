@@ -9,8 +9,8 @@ const PAGES = [
   {href:'m4.html',    label:'4 · Batching',        short:'Batching',        status:'done'},
   {href:'m5.html',    label:'5 · torch.compile',   short:'torch.compile',   status:'done'},
   {href:'m6.html',    label:'6 · Triton kernel',   short:'Triton kernel',   status:'done'},
-  {href:'m7.html',    label:'7 · Profiling',       short:'Profiling',       status:'next'},
-  {href:'m8.html',    label:'8 · Results & README',short:'Results & README',status:'todo'},
+  {href:'m7.html',    label:'7 · Profiling',       short:'Profiling',       status:'done'},
+  {href:'m8.html',    label:'8 · Results & README',short:'Results & README',status:'next'},
   {href:'m9.html',    label:'9 · Cleanup',         short:'Cleanup',         status:'todo'},
   {href:'kernel.html',label:'Triton kernel, annotated', short:'Annotated kernel', status:null, group:'deepdive'},
 ];
@@ -22,7 +22,7 @@ const PAGES = [
     let html =
       '<h1>ESM2 &times; L4</h1>'+
       '<div class="sub">Inference optimization logbook</div>'+
-      '<div class="prog">6 / 9 milestones complete</div>'+
+      '<div class="prog">7 / 9 milestones complete</div>'+
       '<button class="themebtn" id="themebtn" type="button"></button>';
     html += '<a href="index.html"'+(current==='index.html'?' class="active"':'')+'>'+
             '<span class="lbl">Overview</span></a>';
