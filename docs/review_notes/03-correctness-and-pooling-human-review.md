@@ -90,4 +90,8 @@ column -s, -t results/raw/correctness_20260613T102451Z.csv | less -S
 
 ## Human notes
 
-_Add review outcome / approval here before Milestone 4 begins._
+Reviewed and approved Milestone 3.
+
+Pooling behavior is now explicitly tested, including all-pad rows, and three independent masked-mean implementations agree in fp32 to expected floating-point round-off levels.
+
+The main numerical result is clear: fp16 is closer to the fp32 reference than bf16 on this workload, while both precisions preserve pooled embedding direction very well by cosine similarity.
