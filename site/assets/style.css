@@ -45,6 +45,7 @@ nav.side .grp{color:var(--faint);font-size:11px;text-transform:uppercase;letter-
 .dot.done{background:#2ea043}
 .dot.next{background:var(--next)}
 .dot.todo{background:var(--faint)}
+.dot.code{background:var(--accent2)}
 
 main{padding:46px 56px 120px;min-width:0}
 section{margin-bottom:56px;scroll-margin-top:24px}
@@ -125,6 +126,15 @@ ul.clean li b{color:var(--ink)}
 .controls button.on{background:var(--panel2);color:var(--accent);border-color:var(--accent)}
 
 footer{color:var(--faint);font-size:12.5px;border-top:1px solid var(--line);padding-top:20px;max-width:74ch;margin-top:40px}
+
+/* annotated source-code block */
+pre.code{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;
+  line-height:1.7;color:var(--ink);margin:18px 0;tab-size:4;white-space:pre}
+pre.code .c{color:var(--faint);font-style:italic}     /* comments */
+pre.code .s{color:var(--accent)}                       /* strings */
+pre.code .k{color:var(--accent2)}                      /* keywords / decorators */
+.codecap{color:var(--faint);font-size:12px;margin:10px 0 0;font-family:var(--mono)}
 
 /* theme toggle (in sidebar, built by nav.js) */
 .themebtn{display:flex;align-items:center;gap:8px;width:100%;margin:2px 0 18px;cursor:pointer;

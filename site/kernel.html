@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Annotated Triton kernel · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css?v=8">
+  <script>(function(){try{var t=localStorage.getItem("esm2-theme");if(t==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}})();</script>
+</head>
+<body data-page="kernel.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="tag">deep dive · annotated source</div>
+      <h2>The Triton masked-mean-pooling kernel, line by line</h2>
+      <p class="lead">The full kernel from <a href="m6.html">Milestone 6</a>
+      (<code>src/esm2_perf/triton_pooling.py</code>), reproduced here with extensive comments.
+      It fuses the masked mean pooling step — multiply by mask, sum over the sequence axis,
+      divide by the token count — into a single pass that never writes the
+      <code>(B, T, H)</code> product back to GPU memory.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">Launch grid</div><div class="v">(B, ⌈H/B<small>H</small>⌉) <small>one program per row × column-block</small></div></div>
+      <div class="card"><div class="k">Reduction</div><div class="v">over T <small>streamed in BLOCK_T chunks</small></div></div>
+      <div class="card"><div class="k">Accumulator</div><div class="v">fp32 <small>in registers, any input dtype</small></div></div>
+      <div class="card"><div class="k">Edge case</div><div class="v">0/1 <small>all-pad row → zero, not NaN</small></div></div>
+    </div>
+
+    <section>
+      <div class="kicker">Mental model</div>
+      <h2>How the work is split</h2>
+      <p>The kernel is launched as a 2-D grid of independent programs of shape
+      <code>(B, ⌈H / BLOCK_H⌉)</code>. Program <code>(pid_b, pid_h)</code> owns exactly one
+      batch row and one <code>BLOCK_H</code>-wide slice of the 1280-dim hidden vector, and is
+      solely responsible for <code>out[pid_b, pid_h·BLOCK_H : +BLOCK_H]</code>. Inside, it walks
+      the sequence axis <code>T</code> in <code>BLOCK_T</code>-sized chunks, keeping a running
+      fp32 sum and token count in registers — so the big <code>(B, T, H)</code> tensor is read
+      once, streaming, and the masked sum + divide happen on-chip.</p>
+    </section>
+
+    <section>
+      <div class="kicker">Full source · <code>src/esm2_perf/triton_pooling.py</code></div>
+      <h2>The kernel</h2>
+      <p>Two equivalent versions of the same kernel — identical results, pick your reading level.
+      <b>Full · in use</b> is the committed source: explicit strides and runtime <code>T</code>/<code>H</code>,
+      so it stays general and compiles once for all shapes. <b>Simplified · readable</b> is a shorter
+      variant that bakes in the contiguous layout and marks <code>T</code>/<code>H</code> as
+      <code>constexpr</code> (trade-offs noted under it).</p>
+      <div class="controls" id="kernel-switch">
+        <span style="color:var(--faint);font-size:12px;margin-right:4px">version:</span>
+        <button data-v="full" class="on">Full · in use</button>
+        <button data-v="simple">Simplified · readable</button>
+      </div>
+      <div id="code-full">
+<pre class="code"><span class="c"># ===========================================================================
+# esm2_perf/triton_pooling.py
+# Masked mean pooling over real amino-acid tokens, as ONE fused GPU kernel.
+# ===========================================================================
+#
+# What it computes, for every sequence b and hidden channel h:
+#
+#     out[b, h]  =  ( Σ_t  mask[b,t] · hidden[b,t,h] )  /  max( Σ_t mask[b,t], 1 )
+#
+#   hidden : (B, T, H)   per-token encoder outputs (T includes &lt;cls&gt;/&lt;eos&gt; + padding)
+#   mask   : (B, T)      1.0 = real amino-acid token, 0.0 = padding / special token
+#   out    : (B, H)      one pooled embedding per sequence  (H = 1280 for ESM2-650M)
+#
+# Why hand-write it: do the multiply, the sum over T, and the divide in a SINGLE
+# pass that never materialises the (B, T, H) product in GPU memory. The PyTorch
+# one-liner `(hidden * mask).sum(1)` writes that whole tensor to HBM and reads it
+# back; pooling is memory-bound, so removing that round-trip is the entire win.</span>
+
+<span class="k">import</span> torch
+
+<span class="c"># Triton is a GPU-only dependency. Import it lazily so that importing this module
+# on a CPU-only machine (e.g. for the non-GPU unit tests, or `import esm2_perf`)
+# does not raise — HAS_TRITON gates the kernel and its launcher.</span>
+<span class="k">try</span>:
+    <span class="k">import</span> triton
+    <span class="k">import</span> triton.language <span class="k">as</span> tl
+    HAS_TRITON = <span class="k">True</span>
+<span class="k">except</span> ImportError:
+    HAS_TRITON = <span class="k">False</span>
+
+
+<span class="k">@triton.jit</span>                              <span class="c"># compiled to a GPU kernel on first call, then cached</span>
+<span class="k">def</span> _masked_mean_pool_kernel(
+    hidden_ptr, mask_ptr, out_ptr,        <span class="c"># base GPU addresses of the three tensors</span>
+    T, H,                                 <span class="c"># runtime sizes: sequence length, hidden size</span>
+    stride_hb, stride_ht, stride_hh,      <span class="c"># hidden strides: elements to step per b / t / h</span>
+    stride_mb, stride_mt,                 <span class="c"># mask strides:   per b / t</span>
+    stride_ob, stride_oh,                 <span class="c"># out strides:    per b / h</span>
+    BLOCK_T: tl.constexpr,                <span class="c"># compile-time tile sizes. constexpr =&gt; baked into</span>
+    BLOCK_H: tl.constexpr,                <span class="c">#   the kernel, so loops unroll &amp; registers are sized</span>
+):
+    <span class="c"># ---- which slice of the output does THIS program instance compute? ----
+    # The grid is 2-D: (B, ceil(H / BLOCK_H)). Each (pid_b, pid_h) pair is an
+    # independent program that produces out[pid_b, pid_h*BLOCK_H : +BLOCK_H].
+    # There is no cross-program communication — every output element has exactly
+    # one owner, so no atomics or locks are needed.</span>
+    pid_b = tl.program_id(<span class="s">0</span>)              <span class="c"># this program's batch row</span>
+    pid_h = tl.program_id(<span class="s">1</span>)              <span class="c"># this program's BLOCK_H-wide hidden-column slice</span>
+
+    <span class="c"># The hidden columns this program writes, e.g. [256, 257, ... 511].
+    # The final column block may run past H (1280 = 5×256 is exact here, but the
+    # kernel must stay correct for any H), so carry a validity mask alongside.</span>
+    offs_h = pid_h * BLOCK_H + tl.arange(<span class="s">0</span>, BLOCK_H)   <span class="c"># (BLOCK_H,) column indices</span>
+    h_in   = offs_h &lt; H                                <span class="c"># (BLOCK_H,) True where the column is real</span>
+
+    <span class="c"># ---- accumulators live in registers, in fp32, for the whole reduction ----
+    # acc   = running Σ mask·hidden for these BLOCK_H columns
+    # count = running Σ mask for this row (same for every column → a scalar)
+    # Accumulating in fp32 regardless of the input dtype is exactly why this
+    # kernel is MORE accurate than bf16 PyTorch pooling (err ~1e-8 vs ~1e-3).</span>
+    acc   = tl.zeros((BLOCK_H,), dtype=tl.float32)
+    count = tl.zeros((<span class="s">1</span>,),       dtype=tl.float32)
+
+    <span class="c"># ---- stream over the sequence axis T, one BLOCK_T chunk at a time ----
+    # This is the reduction loop. T can be hundreds of tokens; we never hold the
+    # whole row at once, just a BLOCK_T×BLOCK_H tile per iteration.</span>
+    <span class="k">for</span> t0 <span class="k">in</span> range(<span class="s">0</span>, T, BLOCK_T):
+        offs_t = t0 + tl.arange(<span class="s">0</span>, BLOCK_T)        <span class="c"># (BLOCK_T,) token indices in this chunk</span>
+        t_in   = offs_t &lt; T                            <span class="c"># (BLOCK_T,) True where token is real (not tail pad)</span>
+
+        <span class="c"># Load the mask for these tokens. Lanes past T read 0.0 (other=0.0), so they
+        # contribute nothing to either the weighted sum or the count.</span>
+        m = tl.load(
+            mask_ptr + pid_b * stride_mb + offs_t * stride_mt,
+            mask=t_in, other=<span class="s">0.0</span>,
+        ).to(tl.float32)                               <span class="c"># (BLOCK_T,)</span>
+
+        <span class="c"># Build the address of every element in the (BLOCK_T, BLOCK_H) hidden tile.
+        # Broadcasting a column vector of token offsets against a row vector of
+        # hidden offsets yields a 2-D grid of per-element addresses:
+        #   element (t, h) lives at  base + b·stride_b + t·stride_t + h·stride_h</span>
+        h_ptrs = (
+            hidden_ptr
+            + pid_b * stride_hb
+            + offs_t[:, <span class="k">None</span>] * stride_ht           <span class="c"># (BLOCK_T, 1)</span>
+            + offs_h[<span class="k">None</span>, :] * stride_hh           <span class="c"># (1, BLOCK_H)</span>
+        )
+        <span class="c"># Load the tile. The 2-D mask zeroes out lanes outside the real (T, H) region
+        # (ragged tail in either dimension). Upcast to fp32 for the math.</span>
+        tile = tl.load(
+            h_ptrs, mask=t_in[:, <span class="k">None</span>] &amp; h_in[<span class="k">None</span>, :], other=<span class="s">0.0</span>,
+        ).to(tl.float32)                               <span class="c"># (BLOCK_T, BLOCK_H)</span>
+
+        <span class="c"># Weight each token's row by its mask value, then reduce over the token axis
+        # (axis 0). Padding tokens have m = 0, so they add nothing — that is the
+        # "masked" in masked mean. This keeps the running sum entirely on-chip.</span>
+        acc   += tl.sum(tile * m[:, <span class="k">None</span>], axis=<span class="s">0</span>)     <span class="c"># (BLOCK_H,)</span>
+        count += tl.sum(m, axis=<span class="s">0</span>)                     <span class="c"># scalar held in a (1,) tensor</span>
+
+    <span class="c"># ---- finalize: divide the masked sum by the token count to get the mean ----
+    # Clamp the denominator to &gt;= 1 so a sequence with NO real tokens yields
+    # 0 / 1 = 0 (a clean zero vector) instead of 0 / 0 = NaN. This matches the
+    # PyTorch reference (which clamps the count the same way) bit-for-bit on the
+    # edge case.</span>
+    denom = tl.maximum(count, <span class="s">1.0</span>)                  <span class="c"># (1,)</span>
+    out   = acc / denom                                <span class="c"># (BLOCK_H,) broadcast divide</span>
+
+    <span class="c"># Write the pooled values back to out[pid_b, offs_h], masking off any columns
+    # that ran past H so we never scribble outside the tensor.</span>
+    tl.store(out_ptr + pid_b * stride_ob + offs_h * stride_oh, out, mask=h_in)
+
+
+<span class="k">def</span> triton_masked_mean_pool(
+    hidden_states, mask, *,
+    out_dtype=torch.float32,              <span class="c"># return fp32 by default; caller may ask for bf16/fp16</span>
+    block_t=<span class="s">128</span>, block_h=<span class="s">256</span>,           <span class="c"># tile sizes (fixed here — NOT autotuned per shape)</span>
+):
+    <span class="s">"""Host-side launcher: validate, make contiguous, launch the 2-D grid."""</span>
+    <span class="c"># --- guard rails: this kernel only makes sense on a CUDA tensor of rank 3 ---</span>
+    <span class="k">if</span> <span class="k">not</span> HAS_TRITON:
+        <span class="k">raise</span> RuntimeError(<span class="s">"triton is not available"</span>)
+    <span class="k">if</span> <span class="k">not</span> hidden_states.is_cuda:
+        <span class="k">raise</span> ValueError(<span class="s">"requires CUDA tensors"</span>)
+    <span class="k">if</span> hidden_states.dim() != <span class="s">3</span>:
+        <span class="k">raise</span> ValueError(<span class="s">"expected (B, T, H)"</span>)
+
+    B, T, H = hidden_states.shape
+
+    <span class="c"># The kernel indexes with explicit strides, so the layout must be the one we
+    # pass. .contiguous() guarantees the standard row-major strides; it's a no-op
+    # if the tensor is already contiguous (the common case straight off the model).</span>
+    hidden_states = hidden_states.contiguous()
+    <span class="c"># Cast the mask to fp32 once on the host so the kernel can accept an int/bool/
+    # float attention_mask uniformly without dtype branches inside the kernel.</span>
+    mask = mask.to(torch.float32).contiguous()
+
+    <span class="c"># Output buffer. Always fp32 — it holds the fp32-accumulated result; we cast to
+    # out_dtype only at the very end (below).</span>
+    out = torch.empty((B, H), device=hidden_states.device, dtype=torch.float32)
+
+    <span class="c"># 2-D launch grid: B rows  ×  ceil(H / BLOCK_H) hidden-column blocks.
+    # triton.cdiv is ceiling-division so a non-multiple H still covers every column.</span>
+    grid = (B, triton.cdiv(H, block_h))
+
+    <span class="c"># Launch. We pass raw .stride(i) values so the kernel's pointer arithmetic works
+    # for any (contiguous) layout without assuming H- or T-major hard-coded steps.</span>
+    _masked_mean_pool_kernel[grid](
+        hidden_states, mask, out,
+        T, H,
+        hidden_states.stride(<span class="s">0</span>), hidden_states.stride(<span class="s">1</span>), hidden_states.stride(<span class="s">2</span>),
+        mask.stride(<span class="s">0</span>), mask.stride(<span class="s">1</span>),
+        out.stride(<span class="s">0</span>), out.stride(<span class="s">1</span>),
+        BLOCK_T=block_t, BLOCK_H=block_h,
+    )
+    <span class="k">return</span> out.to(out_dtype)               <span class="c"># fp32 by default; cast down only if asked</span></pre>
+        <p class="codecap">Verbatim from the committed source, with comments expanded. The code itself is unchanged.</p>
+      </div>
+
+      <div id="code-simple" hidden>
+<pre class="code"><span class="c"># ---------------------------------------------------------------------------
+# Simplified variant — same math, fewer moving parts, identical results.
+# Two deliberate shortcuts vs the full version (costs noted below the code):
+#   * No stride arguments. Addresses assume the standard CONTIGUOUS layout:
+#       row b at  b·T·H,  token t at  +t·H,  channel h at  +h.
+#     The launcher's .contiguous() call is what makes that assumption safe.
+#   * T and H are tl.constexpr (compile-time), so the loop can fully unroll —
+#     at the cost of recompiling the kernel once per distinct (T, H) shape.
+# ---------------------------------------------------------------------------</span>
+<span class="k">if</span> HAS_TRITON:
+
+    <span class="k">@triton.jit</span>
+    <span class="k">def</span> _masked_mean_pool_kernel(
+        hidden,                           <span class="c"># (B, T, H) contiguous — base pointer</span>
+        mask,                             <span class="c"># (B, T)    contiguous — base pointer</span>
+        out,                              <span class="c"># (B, H)    contiguous — base pointer</span>
+        T: tl.constexpr,                  <span class="c"># sequence length (constexpr =&gt; loop unrolls per shape)</span>
+        H: tl.constexpr,                  <span class="c"># hidden size = 1280</span>
+        BLOCK_T: tl.constexpr,            <span class="c"># tokens handled per loop iteration</span>
+        BLOCK_H: tl.constexpr,            <span class="c"># hidden channels handled by this program</span>
+    ):
+        b = tl.program_id(<span class="s">0</span>)                <span class="c"># this program's batch row</span>
+        h = tl.program_id(<span class="s">1</span>) * BLOCK_H + tl.arange(<span class="s">0</span>, BLOCK_H)   <span class="c"># its hidden columns</span>
+        h_ok = h &lt; H                                       <span class="c"># guard the final column block</span>
+
+        acc   = tl.zeros((BLOCK_H,), dtype=tl.float32)     <span class="c"># Σ mask·hidden — fp32 registers</span>
+        count = tl.full((), <span class="s">0.0</span>, tl.float32)            <span class="c"># Σ mask — a 0-D fp32 scalar</span>
+
+        <span class="k">for</span> t0 <span class="k">in</span> range(<span class="s">0</span>, T, BLOCK_T):           <span class="c"># stream over the sequence axis</span>
+            t = t0 + tl.arange(<span class="s">0</span>, BLOCK_T)
+            t_ok = t &lt; T                                   <span class="c"># guard the ragged tail</span>
+
+            <span class="c"># mask[b, t]:  row b starts at b·T, token t at +t. Pad lanes read 0.0.</span>
+            m = tl.load(mask + b * T + t, mask=t_ok, other=<span class="s">0.0</span>).to(tl.float32)
+            <span class="c"># hidden[b, t, h] = b·T·H + t·H + h, broadcast to a (BLOCK_T, BLOCK_H) tile.</span>
+            x = tl.load(
+                hidden + b * T * H + t[:, <span class="k">None</span>] * H + h[<span class="k">None</span>, :],
+                mask=t_ok[:, <span class="k">None</span>] &amp; h_ok[<span class="k">None</span>, :],
+                other=<span class="s">0.0</span>,
+            ).to(tl.float32)
+
+            acc   += tl.sum(x * m[:, <span class="k">None</span>], axis=<span class="s">0</span>)        <span class="c"># masked sum over tokens</span>
+            count += tl.sum(m, axis=<span class="s">0</span>)                    <span class="c"># token count</span>
+
+        y = acc / tl.maximum(count, <span class="s">1.0</span>)               <span class="c"># mean; clamp =&gt; all-pad row → 0, not NaN</span>
+        tl.store(out + b * H + h, y, mask=h_ok)            <span class="c"># Triton casts fp32 → out.dtype on store</span>
+
+
+<span class="k">def</span> triton_masked_mean_pool(
+    hidden_states, mask, *,
+    out_dtype=torch.float32, block_t=<span class="s">128</span>, block_h=<span class="s">256</span>,
+):
+    <span class="k">if</span> <span class="k">not</span> HAS_TRITON:
+        <span class="k">raise</span> RuntimeError(<span class="s">"triton is not available"</span>)
+    <span class="k">if</span> <span class="k">not</span> hidden_states.is_cuda:
+        <span class="k">raise</span> ValueError(<span class="s">"requires CUDA tensors"</span>)
+    <span class="k">if</span> hidden_states.dim() != <span class="s">3</span>:
+        <span class="k">raise</span> ValueError(<span class="s">"expected (B, T, H)"</span>)
+
+    hidden_states = hidden_states.contiguous()        <span class="c"># the kernel assumes this exact layout</span>
+    mask = mask.to(torch.float32).contiguous()
+
+    B, T, H = hidden_states.shape
+    <span class="c"># Allocate straight in out_dtype: tl.store casts the fp32 result on the way out,
+    # so there is no separate .to() or extra tensor at the end.</span>
+    out = torch.empty((B, H), device=hidden_states.device, dtype=out_dtype)
+
+    _masked_mean_pool_kernel[(B, triton.cdiv(H, block_h))](
+        hidden_states, mask, out,
+        T, H, BLOCK_T=block_t, BLOCK_H=block_h,
+    )
+    <span class="k">return</span> out</pre>
+        <p class="codecap">Shorter and equivalent — produces identical results. The two simplifications have costs:</p>
+      </div>
+
+      <ul class="clean">
+        <li><b>Bakes in the contiguous layout.</b> Dropping the stride arguments and hard-coding
+        <code>b·T·H + t·H + h</code> only works because the launcher calls <code>.contiguous()</code>;
+        it would be wrong on a transposed or strided view. The full version passes explicit strides
+        and stays general.</li>
+        <li><b><code>T</code>/<code>H</code> as <code>constexpr</code>.</b> Lets the loop unroll, but
+        the kernel <em>recompiles once per distinct <code>(T, H)</code></em>. Fine for fixed-shape
+        benchmarking; a cost under variable-length traffic, where the full version's runtime
+        <code>T</code>/<code>H</code> compile once and serve all shapes.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Three details worth dwelling on</div>
+      <h2>Why fp32, why the clamp, why two masks</h2>
+      <ul class="clean">
+        <li><b>fp32 accumulation.</b> The tile is upcast and summed in fp32 no matter the input
+        dtype, so the result is essentially the fp32 reference (err ~1e-8) while bf16 PyTorch
+        pooling sums in bf16 and carries ~1e-3. Faster <em>and</em> more accurate — but it means
+        the kernel is not a bit-identical drop-in for the bf16 path.</li>
+        <li><b><code>tl.maximum(count, 1.0)</code>.</b> An all-padding sequence has
+        <code>count = 0</code>. Without the clamp that is <code>0 / 0 = NaN</code>; with it,
+        <code>0 / 1 = 0</code>, a clean zero vector that matches the reference's edge-case
+        behaviour.</li>
+        <li><b>The two load masks.</b> <code>t_in</code> guards the ragged tail along the
+        sequence axis and <code>h_in</code> the last hidden-column block; <code>other=0.0</code>
+        makes out-of-range lanes contribute nothing, so the kernel is correct for any
+        <code>T</code> and <code>H</code>, not just multiples of the block sizes.</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="kicker">Honest framing</div>
+      <h2>Correct and fast — but not a pipeline win</h2>
+      <div class="note warn">
+        <div class="h">Read the results page for the caveats</div>
+        <p>This kernel is the fastest pooling path in every shape and near-exact, but pooling is
+        ~0.08 ms of a 25–225 ms encoder forward, so it does not move end-to-end throughput. It is
+        also <em>not</em> autotuned (fixed <code>BLOCK_T</code>/<code>BLOCK_H</code>). See
+        <a href="m6.html">Milestone 6</a> for the full benchmark, the honest baseline comparison
+        (vs <code>einsum</code>, not just the naive path), and why the production recommendation is
+        a one-line <code>einsum</code> rather than a bespoke kernel.</p>
+      </div>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script>
+// Toggle between the full (in-use) and simplified (readable) kernel versions.
+(function(){
+  const sw = document.getElementById('kernel-switch');
+  if(!sw) return;
+  const full = document.getElementById('code-full');
+  const simple = document.getElementById('code-simple');
+  sw.querySelectorAll('button').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      sw.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      const showFull = b.dataset.v === 'full';
+      full.hidden = !showFull;
+      simple.hidden = showFull;
+    });
+  });
+})();
+</script>
+<script src="assets/nav.js?v=8"></script>
+</body>
+</html>

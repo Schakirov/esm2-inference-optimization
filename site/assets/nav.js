@@ -12,6 +12,7 @@ const PAGES = [
   {href:'m7.html',    label:'7 · Profiling',       short:'Profiling',       status:'next'},
   {href:'m8.html',    label:'8 · Results & README',short:'Results & README',status:'todo'},
   {href:'m9.html',    label:'9 · Cleanup',         short:'Cleanup',         status:'todo'},
+  {href:'kernel.html',label:'Triton kernel, annotated', short:'Annotated kernel', status:null, group:'deepdive'},
 ];
 
 (function(){
@@ -27,10 +28,18 @@ const PAGES = [
             '<span class="lbl">Overview</span></a>';
     html += '<div class="grp">Milestones</div>';
     for(const p of PAGES){
-      if(p.href==='index.html') continue;
+      if(p.href==='index.html' || p.group) continue;
       const dot = p.status ? '<span class="dot '+p.status+'"></span>' : '';
       html += '<a href="'+p.href+'"'+(current===p.href?' class="active"':'')+'>'+
               dot+'<span class="lbl">'+p.label+'</span></a>';
+    }
+    const extras = PAGES.filter(p=>p.group==='deepdive');
+    if(extras.length){
+      html += '<div class="grp">Deep dive</div>';
+      for(const p of extras){
+        html += '<a href="'+p.href+'"'+(current===p.href?' class="active"':'')+'>'+
+                '<span class="dot code"></span><span class="lbl">'+p.label+'</span></a>';
+      }
     }
     side.innerHTML = html;
 
@@ -58,12 +67,13 @@ const PAGES = [
       btn.addEventListener('click', ()=> setTheme(currentTheme() === 'light' ? 'dark' : 'light'));
     }
   }
-  // prev/next pager
+  // prev/next pager (milestone sequence only; deep-dive pages are out of the flow)
   const pager = document.getElementById('pager');
   if(pager){
-    const i = PAGES.findIndex(p=>p.href===current);
-    const prev = i>0 ? PAGES[i-1] : null;
-    const next = i>=0 && i<PAGES.length-1 ? PAGES[i+1] : null;
+    const seq = PAGES.filter(p=>!p.group);
+    const i = seq.findIndex(p=>p.href===current);
+    const prev = i>0 ? seq[i-1] : null;
+    const next = i>=0 && i<seq.length-1 ? seq[i+1] : null;
     let h='';
     h += prev ? '<a class="prev" href="'+prev.href+'"><div class="dir">&larr; Previous</div><div class="t">'+prev.short+'</div></a>' : '<span></span>';
     h += next ? '<a class="next" href="'+next.href+'"><div class="dir">Next &rarr;</div><div class="t">'+next.short+'</div></a>' : '<span></span>';
