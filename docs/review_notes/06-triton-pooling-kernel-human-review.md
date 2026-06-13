@@ -83,4 +83,13 @@ column -s, -t results/raw/triton_pooling_20260613T162844Z.csv | less -S
 
 ## Human notes
 
-_Add review outcome / approval here before Milestone 7 begins._
+Reviewed milestone 6. 
+It's a small optimization.
+
+Before Triton, masked mean pooling was done in PyTorch, and it may materialize a large temporary tensor [B, T, H] (e.g. batch 32, seq 512, hidden 1280).
+
+A custom Triton GPU kernel launches a grid like (batch row, hidden-dimension block), so the [B,T,H] masked temporary is not materialized; the kernel streams/reduces over the sequence dimension inside one fused GPU kernel.
+
+The Triton pooling kernel is faster and more accurate than the PyTorch pooling variants, but pooling itself is a tiny fraction of the full ESM2 encoder forward, so it's small in regard to the end-to-end throughput win. 
+
+The 5.4x speedup versus eager PyTorch is real but partly reflects a weak baseline that materializes a large temporary tensor. The more conservative 1.1 - 1.6x speedup versus the best PyTorch implementation is a more fair comparison. The fp32 accumulation also makes the kernel numerically closer to the reference than bf16 PyTorch pooling.  
