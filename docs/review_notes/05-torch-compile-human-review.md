@@ -81,4 +81,23 @@ column -s, -t results/raw/compile_20260613T150026Z.csv | less -S
 
 ## Human notes
 
-_Add review outcome / approval here before Milestone 6 begins._
+Milestone 5 is reviewed.
+Results show benefits from torch.compile, coming from reducing the launch overhead and likely from improving the execution graph.
+
+128 × batch 1: 20.6 → 9.6 ms   = 2.15×  (11.0 ms saved)
+128 × batch 8: 46.5 → 34.1 ms  = 1.37×  (12.4 ms saved)
+512 × batch 1: 25.8 → 19.8 ms  = 1.30×  (6.0 ms saved)
+512 × batch 8: 225.7 → 138.7 ms = 1.63×  (87.0 ms saved)
+
+For 128×1, eager is likely dominated by overhead: many small kernels, little work per kernel. Compile removes ~10ms of launch/Python overhead, so the relative gain is huge.
+
+For 128×8, similar situation. Launch overhead is amortized over 8 sequences. Therefore removing ~10ms overhead helps less proportionally.
+
+For 512×1, only ~6 ms saved. This is weaker. However, kernel launches are async, so launch latency only hurts when the GPU finishes a kernel before the CPU can queue the next. At 128×1 the kernels are tiny → GPU starves → **much of** launch latency is on the critical path (11 ms removable). At 512×1 the kernels are bigger → CPU launches overlap with GPU work → less overhead is exposed, so there's only ~6 ms left to remove.
+
+For 512×8, the ~87 ms saved is much larger than the apparent ~10–12 ms overhead floor. This is the only row that strongly suggests something beyond fixed launch overhead: reduced memory traffic, better graph execution, fused pointwise ops, better scheduling, or different kernel choices.
+
+Additional remarks:
+
+* fusion of kernels helps with both launch overheads (fewer kernels to launch) and GPU utilization (kernels are closer to being actually bound by memory or compute, not just by being tiny, i.e. by launch overhead)
+* reduce-overhead regime doesn't help much better than default regime, which suggests default's fusion already removed most of the removable launch overhead, leaving little for CUDA graphs to reclaim (among the modes tested — max-autotune was not run). The evidence that compile does more than cut overhead comes from the 512×8 row, not from this comparison.
