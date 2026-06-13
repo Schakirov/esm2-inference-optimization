@@ -58,6 +58,36 @@ CORRECTNESS_COLUMNS: List[str] = [
     "notes",
 ]
 
+# Batching / padding schema (Milestone 4). Each row is one (strategy, batch_size) cell over a
+# fixed pool of variable-length sequences. ``padding_fraction`` and ``padded_tokens`` capture
+# wasted compute; throughput is reported both as real (non-pad) tokens/sec and as padded
+# compute tokens/sec, so the win from length-sorted batching is visible as real-token gain at
+# roughly constant padded-token rate.
+BATCHING_COLUMNS: List[str] = [
+    "model_name",
+    "gpu_name",
+    "dtype",
+    "strategy",              # naive | sorted
+    "num_seqs",
+    "min_len",
+    "max_len",
+    "batch_size",
+    "num_batches",
+    "actual_tokens",         # real tokens summed over the whole pool (strategy-independent)
+    "padded_tokens",         # tokens actually computed over (sum of batch_size * batch_max)
+    "padding_fraction",      # (padded - actual) / padded, in [0, 1)
+    "padding_waste_ratio",   # padded / actual, >= 1.0
+    "latency_ms",            # median time for one full pass over all batches
+    "real_tokens_per_sec",
+    "padded_tokens_per_sec",
+    "sequences_per_sec",
+    "max_memory_allocated_gb",
+    "warmup",
+    "iters",
+    "oom",
+    "notes",
+]
+
 
 def timestamp() -> str:
     """UTC timestamp safe for filenames, e.g. 20260610T095837Z."""

@@ -1,0 +1,7 @@
+model_name,gpu_name,dtype,strategy,num_seqs,min_len,max_len,batch_size,num_batches,actual_tokens,padded_tokens,padding_fraction,padding_waste_ratio,latency_ms,real_tokens_per_sec,padded_tokens_per_sec,sequences_per_sec,max_memory_allocated_gb,warmup,iters,oom,notes
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,bf16,naive,256,32,512,8,32,72720,123200,0.4097,1.6942,6941.2773,10476.46,17748.89,36.881,1.4202,2,5,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,bf16,naive,256,32,512,16,16,72720,126656,0.4258,1.7417,8018.8867,9068.59,15794.71,31.925,1.6183,2,5,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,bf16,naive,256,32,512,32,8,72720,129824,0.4399,1.7853,8592.6611,8463.04,15108.71,29.793,2.0133,2,5,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,bf16,sorted,256,32,512,8,32,72720,74352,0.0219,1.0224,3956.093,18381.77,18794.3,64.71,1.4195,2,5,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,bf16,sorted,256,32,512,16,16,72720,76176,0.0454,1.0475,4545.9966,15996.49,16756.72,56.313,1.6175,2,5,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,bf16,sorted,256,32,512,32,8,72720,79328,0.0833,1.0909,5140.3745,14146.83,15432.34,49.802,2.0125,2,5,False,

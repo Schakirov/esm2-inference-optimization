@@ -72,7 +72,29 @@ hidden states contain near-zero elements, so dividing by them inflates relative 
 meaningless magnitudes (1e4–1e5) even when absolute error is tiny. Absolute error, RMS error,
 and cosine similarity are the trustworthy columns.
 
+### Padding waste & batching (Milestone 4)
+
+Real proteomes have varied sequence lengths. Batching forces every sequence to be padded to
+the longest in its batch, so the GPU computes over padding tokens that carry no signal.
+
+- **Padding metrics.** For a batch, *padded tokens* = `batch_size × max_length_in_batch`;
+  *real tokens* = sum of the per-sequence token counts. Over a whole pool,
+  `padding_fraction = (padded − real) / padded` (the share of compute wasted on padding) and
+  `padding_waste_ratio = padded / real` (≥ 1.0). Real tokens are independent of how
+  sequences are grouped; padded tokens are not.
+- **Strategies.** `naive` keeps the pool's arbitrary order; `sorted` sorts by length first so
+  each batch holds similar-length sequences and pads less. Planning is pure and unit-tested on
+  the CPU (`esm2_perf.batching`); only the timing touches the GPU.
+- **Two throughput numbers.** Throughput is reported as both *real tokens/sec* (useful work)
+  and *padded compute tokens/sec* (raw GPU rate). Length-sorting leaves the padded rate about
+  unchanged but raises the real rate — that gap is the recovered waste, and the honest way to
+  state the win.
+- **Timing.** A fixed pool of variable-length sequences is shared across all cells so only the
+  grouping changes. Each cell's batches are pre-tokenized onto the GPU, then one full pass
+  over all batches is timed with CUDA events under `torch.inference_mode()` (warmup + median
+  over iterations), mirroring the baseline timing protocol.
+
 ### Still to come
 
-Padding-waste definition, batching strategies, `torch.compile` warmup vs steady-state
-separation, and Triton kernel validation are documented as those milestones land.
+`torch.compile` warmup vs steady-state separation and Triton kernel validation are documented
+as those milestones land.
