@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from esm2_perf.results import (  # noqa: E402
     BASELINE_COLUMNS,
+    BATCHING_COLUMNS,
+    COMPILE_COLUMNS,
     timestamp,
     timestamped_path,
     write_csv,
@@ -60,6 +62,46 @@ def test_baseline_columns_have_required_fields():
         "notes",
     }
     assert required <= set(BASELINE_COLUMNS)
+
+
+def test_batching_columns_have_required_fields():
+    required = {
+        "model_name",
+        "gpu_name",
+        "strategy",
+        "batch_size",
+        "actual_tokens",
+        "padded_tokens",
+        "padding_fraction",
+        "real_tokens_per_sec",
+        "padded_tokens_per_sec",
+        "oom",
+        "notes",
+    }
+    assert required <= set(BATCHING_COLUMNS)
+
+
+def test_compile_columns_have_required_fields():
+    required = {
+        "model_name",
+        "gpu_name",
+        "mode",
+        "dynamic",
+        "batch_size",
+        "seq_len",
+        "cold_start_ms",
+        "steady_latency_ms",
+        "tokens_per_sec",
+        "speedup_vs_eager",
+        "oom",
+        "notes",
+    }
+    assert required <= set(COMPILE_COLUMNS)
+
+
+def test_schemas_have_no_duplicate_columns():
+    for cols in (BASELINE_COLUMNS, BATCHING_COLUMNS, COMPILE_COLUMNS):
+        assert len(cols) == len(set(cols))
 
 
 def test_timestamp_format():

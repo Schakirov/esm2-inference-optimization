@@ -94,7 +94,31 @@ the longest in its batch, so the GPU computes over padding tokens that carry no 
   over all batches is timed with CUDA events under `torch.inference_mode()` (warmup + median
   over iterations), mirroring the baseline timing protocol.
 
+### torch.compile: cold start vs steady state (Milestone 5)
+
+`torch.compile` trades a large one-time cost for a (hoped-for) faster steady state. Conflating
+the two is the classic way to mis-measure it, so the harness (`scripts/04_bench_compile.py`)
+keeps them separate:
+
+- **Cold start.** The first call at a given input shape, measured on the **wall clock** — for
+  compiled modes its cost is dominated by host-side compilation, which CUDA events (device
+  timing) would not capture. With static shapes (`dynamic=False`, the default), each new
+  `(batch, seq_len)` recompiles, so cold start also exposes recompilation cost.
+- **Steady state.** CUDA-event-timed latency after warmup at the same shape — the rate you
+  actually get once compiled. `speedup_vs_eager` is the eager steady latency divided by the
+  compiled steady latency at the *same* shape; eager is always run first to supply that
+  baseline.
+
+**Modes.** `eager` (reference), `default` (Inductor), and optionally `reduce-overhead`
+(CUDA graphs) and `max-autotune`. Dynamo state is reset between modes so each mode's cold
+start reflects only its own compilation. **Static vs dynamic shapes** is a first-class axis:
+`--dynamic` asks for shape-generic kernels (fewer recompiles, sometimes slower) instead of
+per-shape specialization.
+
+**Honest accounting.** The cold-start cost must be amortized over many calls to pay off, and
+small/overhead-bound shapes often do not benefit at all. When compile does not beat eager for
+a shape, the row records it (`speedup_vs_eager < 1`) rather than hiding it.
+
 ### Still to come
 
-`torch.compile` warmup vs steady-state separation and Triton kernel validation are documented
-as those milestones land.
+Triton kernel validation is documented as that milestone lands.

@@ -12,46 +12,140 @@
   <nav class="side" id="side"></nav>
   <main>
     <div class="phead">
-      <div class="statusline todo">○ Planned</div>
+      <div class="statusline done">● Complete · review gate passed</div>
       <h2>Milestone 5 · <code>torch.compile</code> &amp; static shapes</h2>
-      <p class="lead">Test whether graph compilation helps ESM2 encoder inference on the L4, and under
-      what shape regime — being careful to separate one-time compile cost from steady-state speed.</p>
+      <p class="lead">Does graph compilation help ESM2 encoder inference on the L4 — and what does it
+      cost? The harness measures the two numbers people conflate <em>separately</em>: <b>cold start</b>
+      (first call at a shape, includes compilation) and <b>steady state</b> (CUDA-event-timed after
+      warmup). Result: <code>torch.compile</code> gives a real <b>1.3×–2.2× steady-state speedup</b> —
+      largest on the small overhead-bound shape — at a <b>~28 s per-shape compile cost</b> that recurs
+      for every new shape under static shapes.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">Best speedup</div><div class="v">2.20× <small>seq 128 · bs 1 (CUDA graphs)</small></div></div>
+      <div class="card"><div class="k">Compute-bound speedup</div><div class="v">1.64× <small>seq 512 · bs 8</small></div></div>
+      <div class="card"><div class="k">Cold start</div><div class="v">~28 <small>s per shape (recompiles)</small></div></div>
+      <div class="card"><div class="k">Break-even</div><div class="v">~340 <small>calls (512·8) … ~2.5k (128·1)</small></div></div>
     </div>
 
     <section>
-      <div class="kicker">What this milestone will do</div>
-      <h2>Plan</h2>
+      <div class="kicker">What was built</div>
+      <h2>Compile benchmark</h2>
       <ul class="clean">
-        <li><b>Compile vs eager.</b> Benchmark <code>torch.compile</code>'d inference against the eager
-        baseline across the same shape matrix.</li>
-        <li><b>Warmup honesty.</b> Explicitly separate compilation/warmup time from steady-state timed
-        iterations — counting compile time as inference time is a classic misleading artifact.</li>
-        <li><b>Static vs dynamic shapes.</b> Examine recompilation behavior when sequence length / batch
-        size vary, and whether fixing shapes (padding to buckets) avoids recompiles.</li>
+        <li><code>scripts/04_bench_compile.py</code> — benchmarks <code>eager</code> vs
+        <code>default</code> (Inductor) vs <code>reduce-overhead</code> (CUDA graphs); separates cold
+        start (wall clock, includes compile) from steady state (CUDA events); <code>--dynamic</code> flag
+        for shape-generic compile.</li>
+        <li><code>src/esm2_perf/results.py</code> — <code>COMPILE_COLUMNS</code> schema with both timing
+        regimes and <code>speedup_vs_eager</code>.</li>
+        <li>3 new schema tests (<code>tests/test_results.py</code>); 45 tests pass in total.</li>
+      </ul>
+    </section>
+
+    <section id="results">
+      <div class="kicker">Full data · 12 cells</div>
+      <h2>Compile results</h2>
+      <p>Source: <code>results/raw/compile_20260613T150026Z.csv</code> (bf16, <code>dynamic=False</code>).
+      Steady latency is the median over timed iterations; cold start is the first call at that shape.
+      <code>speedup</code> is eager steady ÷ this steady at the same shape.</p>
+      <div class="controls">
+        <span style="color:var(--faint);font-size:12px;margin-right:4px">mode:</span>
+        <button data-f="all" class="on">all</button>
+        <button data-f="eager">eager</button>
+        <button data-f="default">default</button>
+        <button data-f="reduce-overhead">reduce-overhead</button>
+      </div>
+      <div class="tablewrap">
+        <table id="resTable">
+          <thead><tr>
+            <th>mode</th><th class="num">seq_len</th><th class="num">batch</th>
+            <th class="num">cold start</th><th class="num">steady ms</th>
+            <th class="num">tok/sec</th><th class="num">speedup</th><th class="num">peak GB</th>
+          </tr></thead>
+          <tbody id="resBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="kicker">What the benchmark says</div>
+      <h2>Key takeaways</h2>
+      <ul class="clean">
+        <li><b>Compile wins everywhere, most on the small shape.</b> Every compiled cell beats eager.
+        The biggest win is the overhead-bound seq 128 / batch 1 (2.15–2.20×): eager there is pinned on
+        the ~20 ms launch floor, and fusion + CUDA graphs cut exactly that. The compute-bound seq 512 /
+        batch 8 still gains 1.63×, so it is real kernel improvement, not only launch savings.</li>
+        <li><b>reduce-overhead ≈ default.</b> CUDA graphs edge out plain Inductor only marginally
+        (2.20× vs 2.15×, 1.64× vs 1.63×) — not a separate tier of win for this model on this GPU.</li>
+        <li><b>Cold start is ~28 s per shape, and it recurs.</b> With <code>dynamic=False</code> every
+        distinct <code>(batch, seq_len)</code> recompiles. The 512/8 cell saves ~87 ms/call → breaks even
+        after ~340 calls; the 128/1 cell saves ~11 ms/call → needs ~2,500 calls.</li>
+        <li><b>Memory is essentially unchanged</b> (~1.22–1.39 GB), in line with eager.</li>
       </ul>
     </section>
 
     <section>
-      <div class="kicker">Planned outputs</div>
-      <h2>Artifacts</h2>
-      <ul class="clean">
-        <li><code>scripts/04_bench_compile.py</code> — compile-vs-eager benchmark.</li>
-        <li>A timestamped compile CSV under <code>results/raw/</code>.</li>
-      </ul>
+      <div class="kicker">Honest framing</div>
+      <h2>The cold-start asterisk</h2>
       <div class="note warn">
-        <div class="h">No overclaiming</div>
-        <p>If <code>torch.compile</code> does not beat eager PyTorch on this model/hardware, that result
-        is reported as measured and the reason documented in <code>docs/LIMITATIONS.md</code>.</p>
-      </div>
-      <div class="note">
-        <div class="h">Key takeaways</div>
-        <p>To be populated once this milestone runs and passes its review gate.</p>
+        <div class="h">"2.2× faster" — but only after you pay for it</div>
+        <p>The steady-state speedups are genuine, but the headline cannot drop the cold-start cost.
+        Under static shapes that ~28 s compile is paid <em>per shape</em>, and a variable-length protein
+        workload hits many shapes. To make compile practical you would compile with
+        <code>dynamic=True</code> (fewer recompiles, often a smaller per-shape win), bucket sequence
+        lengths to a few fixed shapes, or pre-warm the compile cache for the shapes you serve. Compile
+        pays off for high-volume, shape-stable serving — not one-off or highly shape-diverse runs.</p>
       </div>
     </section>
 
     <div class="pager" id="pager"></div>
   </main>
 </div>
-<script src="assets/nav.js?v=5"></script>
+
+<script>
+// Compile matrix (from results/raw/compile_20260613T150026Z.csv); bf16, dynamic=False
+// [mode, seq_len, batch, cold_ms, steady_ms, tok_s, speedup|null, peak_gb]
+const ROWS = [
+  ["eager",          128, 1,    22.36,  20.6197,  6304.64, null,  1.2277],
+  ["default",        128, 1, 28087.32,   9.6062, 13532.89, 2.146, 1.2829],
+  ["reduce-overhead",128, 1, 28472.09,   9.3655, 13880.73, 2.202, 1.2238],
+  ["eager",          128, 8,    39.09,  46.5454, 22343.77, null,  1.2702],
+  ["default",        128, 8, 28671.46,  34.0731, 30522.62, 1.366, 1.2956],
+  ["reduce-overhead",128, 8, 28325.30,  33.7848, 30783.04, 1.378, 1.2953],
+  ["eager",          512, 1,    26.79,  25.7730, 19943.35, null,  1.2462],
+  ["default",        512, 1, 28422.87,  19.8313, 25918.63, 1.300, 1.2910],
+  ["reduce-overhead",512, 1, 27937.14,  19.8815, 25853.22, 1.296, 1.2820],
+  ["eager",          512, 8,   220.40, 225.7229, 18217.03, null,  1.4169],
+  ["default",        512, 8, 29411.97, 138.6865, 29649.61, 1.628, 1.3873],
+  ["reduce-overhead",512, 8, 27799.28, 137.7111, 29859.61, 1.639, 1.3833],
+];
+const body=document.getElementById('resBody');
+function k(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n)}
+function cold(ms){return ms>=1000?(ms/1000).toFixed(1)+' s':ms.toFixed(0)+' ms'}
+function render(filter){
+  body.innerHTML='';
+  ROWS.filter(r=>filter==='all'||r[0]===filter).forEach(r=>{
+    const spd = r[6]===null
+      ? '<span style="color:var(--faint)">—</span>'
+      : '<b'+(r[6]>=2?' style="color:var(--accent)"':'')+'>'+r[6].toFixed(2)+'×</b>';
+    const tr=document.createElement('tr');
+    tr.innerHTML=
+      `<td>${r[0]}</td><td class="num">${r[1]}</td><td class="num">${r[2]}</td>`+
+      `<td class="num">${cold(r[3])}</td><td class="num">${r[4].toFixed(1)}</td>`+
+      `<td class="num">${k(r[5])}</td><td class="num">${spd}</td><td class="num">${r[7].toFixed(2)}</td>`;
+    body.appendChild(tr);
+  });
+}
+render('all');
+document.querySelectorAll('.controls button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.controls button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    render(b.dataset.f);
+  });
+});
+</script>
+<script src="assets/nav.js?v=6"></script>
 </body>
 </html>

@@ -88,6 +88,33 @@ BATCHING_COLUMNS: List[str] = [
     "notes",
 ]
 
+# torch.compile schema (Milestone 5). Each row is one (mode, dynamic, batch_size, seq_len)
+# cell. ``cold_start_ms`` is the first call at that shape (includes compilation for compiled
+# modes) measured on the wall clock; the steady-state columns are CUDA-event timed after
+# warmup. ``speedup_vs_eager`` compares steady latency to the eager row at the same shape.
+COMPILE_COLUMNS: List[str] = [
+    "model_name",
+    "gpu_name",
+    "dtype",
+    "mode",                  # eager | default | reduce-overhead | max-autotune
+    "dynamic",               # whether torch.compile(dynamic=True) was used
+    "batch_size",
+    "seq_len",
+    "actual_tokens",
+    "cold_start_ms",         # first call at this shape (wall clock; includes compile)
+    "steady_latency_ms",     # median steady-state latency over timed iters
+    "steady_mean_ms",
+    "steady_std_ms",
+    "tokens_per_sec",        # real (non-pad) tokens / sec at steady state
+    "sequences_per_sec",
+    "speedup_vs_eager",      # eager_steady / this_steady at the same shape (blank for eager)
+    "max_memory_allocated_gb",
+    "warmup",
+    "iters",
+    "oom",
+    "notes",
+]
+
 
 def timestamp() -> str:
     """UTC timestamp safe for filenames, e.g. 20260610T095837Z."""

@@ -7,8 +7,8 @@ const PAGES = [
   {href:'m2.html',    label:'2 · Baseline',        short:'Baseline',        status:'done'},
   {href:'m3.html',    label:'3 · Correctness',     short:'Correctness',     status:'done'},
   {href:'m4.html',    label:'4 · Batching',        short:'Batching',        status:'done'},
-  {href:'m5.html',    label:'5 · torch.compile',   short:'torch.compile',   status:'next'},
-  {href:'m6.html',    label:'6 · Triton kernel',   short:'Triton kernel',   status:'todo'},
+  {href:'m5.html',    label:'5 · torch.compile',   short:'torch.compile',   status:'done'},
+  {href:'m6.html',    label:'6 · Triton kernel',   short:'Triton kernel',   status:'next'},
   {href:'m7.html',    label:'7 · Profiling',       short:'Profiling',       status:'todo'},
   {href:'m8.html',    label:'8 · Results & README',short:'Results & README',status:'todo'},
   {href:'m9.html',    label:'9 · Cleanup',         short:'Cleanup',         status:'todo'},
@@ -21,7 +21,7 @@ const PAGES = [
     let html =
       '<h1>ESM2 &times; L4</h1>'+
       '<div class="sub">Inference optimization logbook</div>'+
-      '<div class="prog">4 / 9 milestones complete</div>'+
+      '<div class="prog">5 / 9 milestones complete</div>'+
       '<button class="themebtn" id="themebtn" type="button"></button>';
     html += '<a href="index.html"'+(current==='index.html'?' class="active"':'')+'>'+
             '<span class="lbl">Overview</span></a>';
