@@ -44,6 +44,34 @@ ESM2 special tokens (`<cls>`/`<eos>`). Throughput is reported as real tokens/sec
 sequences/sec. The split between real and padded tokens becomes central in the batching
 milestone.
 
+### Correctness protocol (Milestone 3)
+
+Optimizations are only credible if they preserve the numbers. Before any speed work, the
+correctness harness (`scripts/02_check_correctness.py`) pins down two things:
+
+- **Pooling-implementation equivalence.** Three masked-mean-pool implementations — the
+  vectorized production one, an `einsum` variant, and an explicit per-sequence reference —
+  are compared on identical fp32 hidden states. They agree to ~2e-6 max absolute error
+  (float32 summation-order noise), so any one can stand in for the others and the later
+  Triton kernel has an unambiguous oracle.
+- **Low-precision vs fp32 reference.** The encoder is run in fp32 (reference), bf16, and
+  fp16 on the same token ids. We compare both the per-token `last_hidden_state` and the
+  masked-mean-pooled embedding, reporting max/mean absolute error, RMS error, max relative
+  error, and — for pooled embeddings — the minimum per-sequence cosine similarity.
+
+**Masked mean pooling.** Pooling averages hidden vectors over real amino-acid tokens. The
+pool mask is `attention_mask`, optionally with `<cls>`/`<eos>` removed via the tokenizer's
+`special_tokens_mask` (the default; toggle with `--include-special`). A sequence with zero
+selected tokens pools to a zero vector rather than NaN (the token count is clamped to 1).
+
+**Why cosine similarity is the headline for pooled embeddings.** Element-wise
+`torch.allclose` is reported (as `passed`) but is a deliberately strict, somewhat arbitrary
+gate. For an *embedding*, what matters is direction, so the minimum cosine similarity across
+the batch is the metric we trust. **Max relative error is intentionally not used as a gate:**
+hidden states contain near-zero elements, so dividing by them inflates relative error to
+meaningless magnitudes (1e4–1e5) even when absolute error is tiny. Absolute error, RMS error,
+and cosine similarity are the trustworthy columns.
+
 ### Still to come
 
 Padding-waste definition, batching strategies, `torch.compile` warmup vs steady-state

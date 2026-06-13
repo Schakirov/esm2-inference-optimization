@@ -1,0 +1,13 @@
+model_name,gpu_name,check,dtype,reference,batch_size,seq_len,exclude_special,tensor,max_abs_err,mean_abs_err,rms_err,max_rel_err,min_cosine_sim,rtol,atol,passed,notes
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,impl_equiv,fp32,fp32:vectorized_vs_reference,8,128,True,pooled,4.8e-07,0.0,1e-08,1.023e-05,0.99999994,1e-05,1e-06,True,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,impl_equiv,fp32,fp32:einsum_vs_reference,8,128,True,pooled,1.91e-06,1e-08,4e-08,8.152e-05,0.99999994,1e-05,1e-06,True,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,impl_equiv,fp32,fp32:vectorized_vs_reference,8,512,True,pooled,4.8e-07,0.0,1e-08,8.1e-06,0.99999982,1e-05,1e-06,True,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,impl_equiv,fp32,fp32:einsum_vs_reference,8,512,True,pooled,1.91e-06,1e-08,5e-08,0.00011333,0.99999982,1e-05,1e-06,True,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,hidden_vs_fp32,bf16,fp32,8,128,True,hidden,0.32139635,0.00370811,0.00580386,337332.84375,,0.01,0.01,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,pooled_vs_fp32,bf16,fp32,8,128,True,pooled,0.06043434,0.00187547,0.00319604,331.79272461,0.99978733,0.01,0.01,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,hidden_vs_fp32,bf16,fp32,8,512,True,hidden,0.46356773,0.00415286,0.00718041,79892.5,,0.01,0.01,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,pooled_vs_fp32,bf16,fp32,8,512,True,pooled,0.10586071,0.00188905,0.00347833,351.03665161,0.99965382,0.01,0.01,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,hidden_vs_fp32,fp16,fp32,8,128,True,hidden,0.05946302,0.00059582,0.00093396,55987.6171875,,0.01,0.01,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,pooled_vs_fp32,fp16,fp32,8,128,True,pooled,0.01066065,0.00028399,0.00049375,18.4487381,0.99999082,0.01,0.01,True,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,hidden_vs_fp32,fp16,fp32,8,512,True,hidden,0.03251171,0.00049809,0.00075473,12505.1640625,,0.01,0.01,False,
+facebook/esm2_t33_650M_UR50D,NVIDIA L4,pooled_vs_fp32,fp16,fp32,8,512,True,pooled,0.01161861,0.00022302,0.00036126,35.07195663,0.99999595,0.01,0.01,True,

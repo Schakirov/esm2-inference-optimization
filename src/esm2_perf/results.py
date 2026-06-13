@@ -32,6 +32,32 @@ BASELINE_COLUMNS: List[str] = [
     "notes",
 ]
 
+# Correctness / pooling schema (Milestone 3). Each row records one comparison: either a
+# low-precision (bf16/fp16) result against the fp32 eager reference, or two pooling
+# implementations against each other at the same precision. Error metrics are computed in
+# fp32. ``passed`` is a convenience flag from ``torch.allclose(rtol, atol)``; the raw error
+# columns are the honest record regardless of the threshold chosen.
+CORRECTNESS_COLUMNS: List[str] = [
+    "model_name",
+    "gpu_name",
+    "check",                 # what is compared, e.g. pooled_vs_fp32 / hidden_vs_fp32 / impl_equiv
+    "dtype",                 # precision of the approx side (fp32 for impl_equiv checks)
+    "reference",             # precision/impl of the reference side
+    "batch_size",
+    "seq_len",
+    "exclude_special",       # whether <cls>/<eos> were dropped before pooling
+    "tensor",                # pooled | hidden
+    "max_abs_err",
+    "mean_abs_err",
+    "rms_err",
+    "max_rel_err",
+    "min_cosine_sim",        # min over the batch (pooled embeddings only; blank for hidden)
+    "rtol",
+    "atol",
+    "passed",
+    "notes",
+]
+
 
 def timestamp() -> str:
     """UTC timestamp safe for filenames, e.g. 20260610T095837Z."""
