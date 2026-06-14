@@ -1,0 +1,7 @@
+strategy,batch_size,padding_fraction,real_tokens_per_sec,padded_tokens_per_sec
+naive,8,0.4097,10476.46,17748.89
+naive,16,0.4258,9068.59,15794.71
+naive,32,0.4399,8463.04,15108.71
+sorted,8,0.0219,18381.77,18794.3
+sorted,16,0.0454,15996.49,16756.72
+sorted,32,0.0833,14146.83,15432.34

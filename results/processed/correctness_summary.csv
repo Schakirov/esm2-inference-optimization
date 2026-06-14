@@ -1,0 +1,13 @@
+check,dtype,reference,tensor,max_abs_err,min_cosine_sim,passed
+impl_equiv,fp32,fp32:vectorized_vs_reference,pooled,4.8e-07,0.99999994,True
+impl_equiv,fp32,fp32:einsum_vs_reference,pooled,1.91e-06,0.99999994,True
+impl_equiv,fp32,fp32:vectorized_vs_reference,pooled,4.8e-07,0.99999982,True
+impl_equiv,fp32,fp32:einsum_vs_reference,pooled,1.91e-06,0.99999982,True
+hidden_vs_fp32,bf16,fp32,hidden,0.32139635,,False
+pooled_vs_fp32,bf16,fp32,pooled,0.06043434,0.99978733,False
+hidden_vs_fp32,bf16,fp32,hidden,0.46356773,,False
+pooled_vs_fp32,bf16,fp32,pooled,0.10586071,0.99965382,False
+hidden_vs_fp32,fp16,fp32,hidden,0.05946302,,False
+pooled_vs_fp32,fp16,fp32,pooled,0.01066065,0.99999082,True
+hidden_vs_fp32,fp16,fp32,hidden,0.03251171,,False
+pooled_vs_fp32,fp16,fp32,pooled,0.01161861,0.99999595,True

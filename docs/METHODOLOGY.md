@@ -149,3 +149,16 @@ kernel (`esm2_perf.triton_pooling`) is validated *before* it is benchmarked:
   but the analysis also compares against the *best* PyTorch option (`einsum`/`compiled`) so a
   weak baseline does not inflate the headline. Pooling is a tiny fraction of encoder time, so
   the milestone states plainly that the kernel does not move end-to-end throughput.
+
+### Report generation (Milestone 8)
+
+The report is **generated from data, not hand-transcribed**. `scripts/07_summarize_results.py`
+reads the raw CSVs and splices Markdown tables into `docs/RESULTS.md` between marker comments,
+so a number in the report always traces back to a committed CSV:
+
+- **Richest-file selection.** Per experiment it picks the CSV with the most data rows (ties
+  broken by latest timestamp), so a `--quick` smoke run cannot shadow the full benchmark matrix.
+- **Drift is a failure.** `--check` re-renders the tables and exits non-zero if `docs/RESULTS.md`
+  is stale — the report cannot quietly diverge from the data it claims to summarize.
+- **Negatives reported alongside positives.** The summary explicitly carries a “what did not
+  improve performance” section so honest negative results are as visible as the wins.
