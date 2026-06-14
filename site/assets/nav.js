@@ -13,6 +13,8 @@ const PAGES = [
   {href:'m8.html',    label:'8 · Results & README',short:'Results & README',status:'next'},
   {href:'m9.html',    label:'9 · Cleanup',         short:'Cleanup',         status:'todo'},
   {href:'kernel.html',label:'Triton kernel, annotated', short:'Annotated kernel', status:null, group:'deepdive'},
+  {href:'hardware.html',label:'GPU & training context', short:'GPU context', status:null, group:'deepdive'},
+  {href:'gemm.html',label:'Inside one GEMM kernel', short:'Inside one GEMM', status:null, group:'deepdive'},
 ];
 
 (function(){

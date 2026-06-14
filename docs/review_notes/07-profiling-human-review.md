@@ -69,4 +69,8 @@ column -s, -t results/raw/profile_20260613T171924Z.csv | cut -c1-120 | less -S
 
 ## Human notes
 
-_Add review outcome / approval here before Milestone 8 begins._
+Reviewed milestone 7. 
+
+One finding is that this ESM2-650M eager forward pass on L4 is not dominated by attention. Although attention is a natural suspect because of its quadratic sequence-length scaling, the profiled shape uses an efficient fused FlashAttention kernel, while most time goes to FFN/projection GEMMs plus unfused elementwise and copy/cast kernels. 
+
+This supports the earlier torch.compile result: fusion, not attention replacement, is the main optimization explanation for this shape. The profiling rollup should be treated as approximate because only one eager shape was profiled. For that shape, there is meaningful fusion headroom, and the relevant bottleneck for this configuration is kernel mix / memory traffic rather than model size.

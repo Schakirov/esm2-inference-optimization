@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inside one s16816 GEMM · ESM2 L4</title>
+<link rel="stylesheet" href="assets/style.css?v=10">
+  <script>(function(){try{var t=localStorage.getItem("esm2-theme");if(t==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}})();</script>
+<style>
+  /* page-scoped: nested-tile diagram, ownership grid, flow */
+  .nest{border:1.5px solid var(--accent);border-radius:10px;padding:14px 14px 16px;position:relative;font-family:var(--mono);font-size:12px}
+  .nest .cap{position:absolute;top:-9px;left:12px;background:var(--bg);padding:0 7px;color:var(--accent);font-size:11px}
+  .n-warp{border-color:var(--accent2);margin-top:16px}.n-warp>.cap{color:var(--accent2)}
+  .n-inst{border-color:var(--pink);margin-top:16px}.n-inst>.cap{color:var(--pink)}
+  .n-thr{border-color:var(--warn);margin-top:16px}.n-thr>.cap{color:var(--warn)}
+  .nest .d{color:var(--muted);margin-top:4px}
+  .ogrid{overflow:auto;border:1px solid var(--line);border-radius:10px;margin:12px 0}
+  table.own{border-collapse:collapse;font-family:var(--mono);font-size:10.5px;width:auto;min-width:100%}
+  table.own th,table.own td{padding:3px 5px;text-align:center;border:1px solid var(--line)}
+  table.own th{position:static;background:var(--panel);color:var(--faint);text-transform:none;letter-spacing:0}
+  table.own td.t{color:var(--ink)}
+  .t0{background:hsla(150,65%,50%,.18)}.t1{background:hsla(205,70%,55%,.18)}
+  .t2{background:hsla(330,65%,60%,.18)}.t3{background:hsla(45,75%,55%,.18)}
+  .t4{background:hsla(265,60%,62%,.20)}.t5{background:hsla(15,75%,58%,.18)}
+  .t6{background:hsla(185,60%,50%,.20)}.t7{background:hsla(95,55%,50%,.18)}
+  .wmap{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;max-width:300px;font-family:var(--mono);font-size:11px;margin:12px 0}
+  .wmap div{border:1px solid var(--line);border-radius:6px;padding:9px;background:var(--panel);color:var(--muted)}
+  .wmap b{color:var(--ink)}
+  .flow{display:flex;flex-direction:column;gap:7px;margin:12px 0;font-family:var(--mono);font-size:12.5px}
+  .flow .step{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:baseline;border-left:2px solid var(--line);padding:6px 0 6px 14px}
+  .flow .step b{color:var(--accent2)}
+  .flow .step span{color:var(--muted)}
+</style>
+</head>
+<body data-page="gemm.html">
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main>
+    <div class="phead">
+      <div class="tag">deep dive · one kernel, tile by tile</div>
+      <h2>Inside one <code>s16816gemm</code>: a tile-by-tile walk on the L4</h2>
+      <p class="lead">The top kernel in the <a href="m7.html">Milestone&nbsp;7</a> profile is
+      <code>cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_256x128_32x3_tn_align8</code> — the ESM2 FFN matrix
+      multiply, 24.9% of the forward. This page follows <b>one real instance</b> of that kernel doing the
+      650M model's feed-forward up-projection, and answers, at every level of the hardware: <b>which block,
+      which warp, which thread touches which slice of A, B and C — and where each number physically lives</b>
+      (HBM, L2, shared memory, or registers) when the tensor core consumes it. No simulation — just the
+      logic of the tiling, with real L4 numbers.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">The multiply</div><div class="v">4096×1280×5120 <small>M · K · N (bf16)</small></div></div>
+      <div class="card"><div class="k">Grid</div><div class="v">640 blocks <small>16 × 40 tiles of C</small></div></div>
+      <div class="card"><div class="k">On 58 SMs</div><div class="v">~11 waves <small>1 block per SM resident</small></div></div>
+      <div class="card"><div class="k">Per block</div><div class="v">256 threads <small>8 warps · 72 KB shared</small></div></div>
+    </div>
+
+    <section id="case">
+      <div class="kicker">The concrete case</div>
+      <h2>One matrix multiply, real shapes</h2>
+      <p>ESM2-650M has embedding width <b>d=1280</b> and FFN width <b>4d=5120</b>. At the profiled shape
+      (seq 512 × batch 8 = <b>4096 tokens</b>), the FFN <b>up-projection</b> is a single GEMM
+      <code>C = A · B</code>:</p>
+      <ul class="clean">
+        <li><b>A</b> = activations <code>X</code>, <b>M×K = 4096×1280</b> bf16 — one row per token.</li>
+        <li><b>B</b> = weight <code>W₁</code>, <b>K×N = 1280×5120</b> bf16 — the up-projection matrix.</li>
+        <li><b>C</b> = output <code>Y</code>, <b>M×N = 4096×5120</b> — accumulated in fp32, written as bf16.</li>
+      </ul>
+      <p>That is <b>2·M·N·K = 53.7 GFLOP</b> for this one matmul. At the L4's 121 TFLOP/s bf16 peak the
+      <em>arithmetic</em> floor is ~0.44 ms; the minimum HBM traffic if every element of A, B, C is touched
+      once is only <b>65.5 MB</b> (~0.22 ms at 300 GB/s). The ratio — <b>~819 FLOP per byte</b> — is what
+      makes this <b>compute-bound</b>, and is the entire reason for the tile hierarchy below: it exists to
+      turn that 819 into reality by keeping operands in fast memory and feeding the tensor cores, instead of
+      re-reading A and B from HBM thousands of times.</p>
+
+      <h3>Decoding the kernel name</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>token</th><th>meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>cutlass_80</code></td><td>CUTLASS Ampere-generation (sm_80) tensor-op kernel family. The <code>m16n8k16</code> bf16 MMA it uses is native to the L4's Ada 4th-gen tensor cores, so cuBLAS dispatches this kernel here.</td></tr>
+            <tr><td><code>tensorop</code></td><td>runs on the <b>tensor cores</b>, not the FP32 CUDA cores.</td></tr>
+            <tr><td><code>bf16 … bf16</code></td><td>bf16 inputs, bf16 output element (fp32 accumulation internally).</td></tr>
+            <tr><td><code>s16816gemm</code></td><td>built from the <b>16×8×16</b> (M×N×K) tensor-core MMA instruction — the atom of work.</td></tr>
+            <tr><td><code>relu</code></td><td>the epilogue <em>slot</em> can fuse ReLU. ESM2 uses GeLU, which shows up as a <b>separate</b> <code>erf</code> kernel in the profile — so here the activation is <em>not</em> fused; the epilogue just scales, casts, and writes.</td></tr>
+            <tr><td><code>256x128</code></td><td>the <b>threadblock (CTA) tile</b>: each block computes a 256×128 patch of C.</td></tr>
+            <tr><td><code>32x3</code></td><td>CTA <b>K-step = 32</b>, software pipeline <b>3 stages</b> deep.</td></tr>
+            <tr><td><code>tn</code></td><td>operand transpose modes (A row-major / B column-major) — the layout the tensor-core load path wants.</td></tr>
+            <tr><td><code>align8</code></td><td>operands 8-element (128-bit) aligned → vectorized 16-byte loads.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tiles">
+      <div class="kicker">The shape of the work</div>
+      <h2>Three nested tiles</h2>
+      <p>The 4096×5120 output is not computed all at once. It is carved into nested tiles, one per level of the
+      compute hierarchy — block, warp, instruction — each a chunk small enough to fit the storage at that
+      level:</p>
+
+      <div class="nest n-cta"><span class="cap">CTA / threadblock tile — 256 × 128, K-step 32</span>
+        <div class="d">one block → one 256×128 patch of C · marches across K in 40 steps of 32 · 256 threads, 8 warps</div>
+        <div class="nest n-warp"><span class="cap">warp tile — 64 × 64</span>
+          <div class="d">one warp (32 threads) → one 64×64 quarter-ish of the block's patch · 8 warps tile the 256×128 as 4×2</div>
+          <div class="nest n-inst"><span class="cap">instruction tile — mma.sync 16 × 8 × 16</span>
+            <div class="d">the tensor-core atom: 16×8 output, contracting 16 of K, in one HMMA · a 64×64 warp tile = 4×8 = 32 of these per K=16 step</div>
+            <div class="nest n-thr"><span class="cap">thread — 4 fp32 accumulators</span>
+              <div class="d">each of the 32 threads owns 4 of the 16×8 = 128 outputs, held in registers the whole time</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tablewrap" style="margin-top:18px">
+        <table>
+          <thead><tr><th>level</th><th>tile (M×N×K)</th><th>how many</th><th class="num">count</th><th>output it owns</th></tr></thead>
+          <tbody>
+            <tr><td>grid</td><td>—</td><td>blocks over C</td><td class="num">640</td><td>the whole 4096×5120</td></tr>
+            <tr><td>block (CTA)</td><td>256×128×32</td><td>warps</td><td class="num">8</td><td>256×128 patch</td></tr>
+            <tr><td>warp</td><td>64×64×16</td><td>threads</td><td class="num">32</td><td>64×64 sub-tile</td></tr>
+            <tr><td>instruction</td><td>16×8×16</td><td>per warp per K-16</td><td class="num">32</td><td>16×8 micro-tile</td></tr>
+            <tr><td>thread</td><td>—</td><td>fp32 accumulators</td><td class="num">128</td><td>4 per micro-tile</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <div class="h">What the name tells us vs. what is the standard config</div>
+        <p>The CTA tile (256×128×32), stage count (3), and instruction shape (16×8×16) are read <b>directly</b>
+        from the kernel name. The <b>warp shape (64×64)</b> and thread count (256) are <em>not</em> encoded in
+        the name — they are the canonical CUTLASS pairing for a 256×128×32 bf16 tile (4×2 warps), which is
+        what cuBLAS uses for this kernel. Treat the warp-level numbers as the standard configuration, not as
+        something the profiler proved for this exact run.</p>
+      </div>
+    </section>
+
+    <section id="memory">
+      <div class="kicker">Where things live</div>
+      <h2>The L4 memory hierarchy this kernel rides</h2>
+      <p>Every value A, B and C starts and ends in HBM. The tile hierarchy is exactly a plan for staging those
+      values <em>up</em> the pyramid into faster, smaller storage so the tensor cores never wait on HBM:</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>level</th><th class="num">size (L4)</th><th class="num">scope</th><th>holds, in this kernel</th></tr></thead>
+          <tbody>
+            <tr><td><b>HBM</b> (GDDR6)</td><td class="num">24 GB</td><td class="num">whole GPU</td><td>A, B, C in full · 300 GB/s, the slow tier</td></tr>
+            <tr><td><b>L2 cache</b></td><td class="num">48 MB</td><td class="num">whole GPU</td><td>A-panels &amp; B-panels reused across blocks — the reuse that beats 300 GB/s</td></tr>
+            <tr><td><b>Shared mem</b> (L1)</td><td class="num">≤100 KB/SM</td><td class="num">one block</td><td>the staged 256×32 A-tile + 32×128 B-tile, ×3 stages = 72 KB</td></tr>
+            <tr><td><b>Registers</b></td><td class="num">64K×32b/SM</td><td class="num">one thread</td><td>each thread's 128 fp32 accumulators + the A/B fragments it feeds the MMA</td></tr>
+            <tr><td><b>Tensor cores</b></td><td class="num">4 / SM</td><td class="num">one warp</td><td>consume register fragments, emit fp32 into registers — never touch HBM</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="codecap">L4: 58 SMs, 4th-gen tensor cores (4/SM), 128 KB combined L1/shared per SM (up to 100 KB
+      as shared), 64K 32-bit registers/SM (max 255/thread), 48 MB L2, 24 GB GDDR6 @ 300 GB/s, CC 8.9.</p>
+    </section>
+
+    <section id="grid">
+      <div class="kicker">Level 1 · the grid</div>
+      <h2>640 blocks, ~11 waves across 58 SMs</h2>
+      <p>C is 4096×5120. Cut into 256×128 patches that is <b>(4096/256) × (5120/128) = 16 × 40 = 640
+      blocks</b>. Block <code>(bm, bn)</code> is solely responsible for
+      <code>C[bm·256 : +256, bn·128 : +128]</code> — e.g. block (0,0) owns C's top-left 256×128 corner;
+      block (15,39) owns the bottom-right.</p>
+      <p>The L4 has 58 SMs. This kernel's block needs ~72 KB shared and ~255 registers/thread, so only
+      <b>one block fits per SM at a time</b>. 640 blocks ÷ 58 SMs ≈ <b>11 waves</b>: the GPU runs 58 blocks
+      at once, they finish, the scheduler launches the next 58, eleven times over. <b>Operand reuse is across
+      blocks, and that is what L2 is for:</b> the 40 blocks sharing a row-band of A all read the same
+      256×1280 A-panel (640 KB); the 16 blocks sharing a column-band of B all read the same 1280×128 B-panel
+      (320 KB). Both panels are tiny against the 48 MB L2, so after the first block pays the HBM cost the rest
+      are served from L2 — the effective operand bandwidth is far above the raw 300 GB/s.</p>
+    </section>
+
+    <section id="block">
+      <div class="kicker">Level 2 · one block on one SM</div>
+      <h2>The mainloop: stage, compute, repeat — 40 times</h2>
+      <p>Take block (0,0). It must compute <code>C[0:256, 0:128] = A[0:256, 0:1280] · B[0:1280, 0:128]</code>.
+      K=1280 is too big to hold, so the block walks K in <b>40 steps of 32</b>. Each step it stages a thin
+      slab of A and B into shared memory and feeds them to the tensor cores:</p>
+      <div class="flow">
+        <div class="step"><b>HBM → shared</b><span>A-slab <code>A[0:256, k:k+32]</code> (16 KB) and B-slab <code>B[k:k+32, 0:128]</code> (8 KB) are copied straight from L2/HBM into shared by <code>cp.async</code>, <em>bypassing the register file</em>. 256 threads cooperate on the coalesced load (128-bit each, <code>align8</code>).</span></div>
+        <div class="step"><b>3-stage pipeline</b><span>While the tensor cores chew on stage <code>k</code>, <code>cp.async</code> is already pulling stages <code>k+1</code> and <code>k+2</code>. Three slabs of each operand live in shared at once → <b>3 × (16+8) = 72 KB</b>, inside the L4's 100 KB budget. This is how the 300 GB/s latency is hidden behind compute.</span></div>
+        <div class="step"><b>shared → registers</b><span>Each warp issues <code>ldmatrix</code> to pull its operand fragments from shared into registers, already permuted into the layout the tensor cores require.</span></div>
+        <div class="step"><b>registers → tensor core</b><span>The warp issues its <code>mma.sync</code> instructions; results accumulate <em>in place</em> in each thread's fp32 registers. Nothing returns to shared or HBM until the very end.</span></div>
+      </div>
+      <p>After 40 iterations the contraction over K is complete and every thread holds its final fp32 partial
+      sums in registers. The 256×128 = 32,768 outputs of this block live entirely in the registers of its 256
+      threads (128 each).</p>
+    </section>
+
+    <section id="warp">
+      <div class="kicker">Level 3 · one warp</div>
+      <h2>Which warp owns which 64×64</h2>
+      <p>The block's 8 warps tile its 256×128 patch as a <b>4×2 grid</b> of 64×64 sub-tiles. Warp
+      <code>(wm, wn)</code> owns <code>C_block[wm·64 : +64, wn·64 : +64]</code>:</p>
+      <div class="wmap">
+        <div><b>warp 0</b><br>rows 0–63, cols 0–63</div>
+        <div><b>warp 1</b><br>rows 0–63, cols 64–127</div>
+        <div><b>warp 2</b><br>rows 64–127, cols 0–63</div>
+        <div><b>warp 3</b><br>rows 64–127, cols 64–127</div>
+        <div><b>warp 4</b><br>rows 128–191, cols 0–63</div>
+        <div><b>warp 5</b><br>rows 128–191, cols 64–127</div>
+        <div><b>warp 6</b><br>rows 192–255, cols 0–63</div>
+        <div><b>warp 7</b><br>rows 192–255, cols 64–127</div>
+      </div>
+      <p>To build its 64×64, a warp needs the matching <b>64 rows of the A-slab</b> and <b>64 cols of the
+      B-slab</b> sitting in shared. Within one K-step of 32, it covers K in <b>two MMA sub-steps of 16</b>,
+      and for each it issues <b>(64/16) × (64/8) = 4 × 8 = 32</b> <code>mma.sync</code> instructions — so
+      <b>64 MMAs per warp per mainloop iteration</b>, ×40 iterations = 2,560 MMAs to finish its tile. All 32
+      threads of the warp execute each <code>mma.sync</code> together; the instruction is warp-wide.</p>
+    </section>
+
+    <section id="mma">
+      <div class="kicker">Level 4 · one instruction</div>
+      <h2>One <code>mma.sync.m16n8k16</code>, thread by thread</h2>
+      <p>This is the atom. <code>mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32</code> takes a 16×16 tile
+      of A and a 16×8 tile of B and produces a 16×8 tile of C, contracting the 16-long K. The 32 threads of
+      the warp <b>split the operands and the result among themselves</b> — there is no shared scratch inside
+      the instruction, everything is in registers:</p>
+      <ul class="clean">
+        <li><b>A fragment</b> (16×16 bf16 = 256 values): each thread holds <b>8</b> bf16, packed in 4 32-bit
+        registers.</li>
+        <li><b>B fragment</b> (16×8 bf16 = 128 values): each thread holds <b>4</b> bf16, in 2 registers.</li>
+        <li><b>C/D fragment</b> (16×8 fp32 = 128 values): each thread holds <b>4</b> fp32 accumulators — the
+        ones it has been carrying across all 40 K-steps.</li>
+      </ul>
+      <p>The result ownership is fixed by the PTX layout: thread <code>t</code> sits in group
+      <code>g = t÷4</code> and lane <code>ℓ = t mod 4</code>, and owns the four C elements at
+      <b>rows {g, g+8}</b> × <b>cols {2ℓ, 2ℓ+1}</b>. The full 16×8 map — every cell labelled with the thread
+      that holds it (note each thread appears in two rows, <code>r</code> and <code>r+8</code>):</p>
+      <div class="ogrid">
+        <table class="own">
+          <tr><th></th><th class="num">c0</th><th class="num">c1</th><th class="num">c2</th><th class="num">c3</th><th class="num">c4</th><th class="num">c5</th><th class="num">c6</th><th class="num">c7</th></tr>
+          <tr><th class="num">r0</th><td class="t t0">T0</td><td class="t t0">T0</td><td class="t t1">T1</td><td class="t t1">T1</td><td class="t t2">T2</td><td class="t t2">T2</td><td class="t t3">T3</td><td class="t t3">T3</td></tr>
+          <tr><th class="num">r1</th><td class="t t4">T4</td><td class="t t4">T4</td><td class="t t5">T5</td><td class="t t5">T5</td><td class="t t6">T6</td><td class="t t6">T6</td><td class="t t7">T7</td><td class="t t7">T7</td></tr>
+          <tr><th class="num">r2</th><td class="t t0">T8</td><td class="t t0">T8</td><td class="t t1">T9</td><td class="t t1">T9</td><td class="t t2">T10</td><td class="t t2">T10</td><td class="t t3">T11</td><td class="t t3">T11</td></tr>
+          <tr><th class="num">r3</th><td class="t t4">T12</td><td class="t t4">T12</td><td class="t t5">T13</td><td class="t t5">T13</td><td class="t t6">T14</td><td class="t t6">T14</td><td class="t t7">T15</td><td class="t t7">T15</td></tr>
+          <tr><th class="num">r4</th><td class="t t0">T16</td><td class="t t0">T16</td><td class="t t1">T17</td><td class="t t1">T17</td><td class="t t2">T18</td><td class="t t2">T18</td><td class="t t3">T19</td><td class="t t3">T19</td></tr>
+          <tr><th class="num">r5</th><td class="t t4">T20</td><td class="t t4">T20</td><td class="t t5">T21</td><td class="t t5">T21</td><td class="t t6">T22</td><td class="t t6">T22</td><td class="t t7">T23</td><td class="t t7">T23</td></tr>
+          <tr><th class="num">r6</th><td class="t t0">T24</td><td class="t t0">T24</td><td class="t t1">T25</td><td class="t t1">T25</td><td class="t t2">T26</td><td class="t t2">T26</td><td class="t t3">T27</td><td class="t t3">T27</td></tr>
+          <tr><th class="num">r7</th><td class="t t4">T28</td><td class="t t4">T28</td><td class="t t5">T29</td><td class="t t5">T29</td><td class="t t6">T30</td><td class="t t6">T30</td><td class="t t7">T31</td><td class="t t7">T31</td></tr>
+          <tr><th class="num">r8</th><td class="t t0">T0</td><td class="t t0">T0</td><td class="t t1">T1</td><td class="t t1">T1</td><td class="t t2">T2</td><td class="t t2">T2</td><td class="t t3">T3</td><td class="t t3">T3</td></tr>
+          <tr><th class="num">r9</th><td class="t t4">T4</td><td class="t t4">T4</td><td class="t t5">T5</td><td class="t t5">T5</td><td class="t t6">T6</td><td class="t t6">T6</td><td class="t t7">T7</td><td class="t t7">T7</td></tr>
+          <tr><th class="num">r10</th><td class="t t0">T8</td><td class="t t0">T8</td><td class="t t1">T9</td><td class="t t1">T9</td><td class="t t2">T10</td><td class="t t2">T10</td><td class="t t3">T11</td><td class="t t3">T11</td></tr>
+          <tr><th class="num">r11</th><td class="t t4">T12</td><td class="t t4">T12</td><td class="t t5">T13</td><td class="t t5">T13</td><td class="t t6">T14</td><td class="t t6">T14</td><td class="t t7">T15</td><td class="t t7">T15</td></tr>
+          <tr><th class="num">r12</th><td class="t t0">T16</td><td class="t t0">T16</td><td class="t t1">T17</td><td class="t t1">T17</td><td class="t t2">T18</td><td class="t t2">T18</td><td class="t t3">T19</td><td class="t t3">T19</td></tr>
+          <tr><th class="num">r13</th><td class="t t4">T20</td><td class="t t4">T20</td><td class="t t5">T21</td><td class="t t5">T21</td><td class="t t6">T22</td><td class="t t6">T22</td><td class="t t7">T23</td><td class="t t7">T23</td></tr>
+          <tr><th class="num">r14</th><td class="t t0">T24</td><td class="t t0">T24</td><td class="t t1">T25</td><td class="t t1">T25</td><td class="t t2">T26</td><td class="t t2">T26</td><td class="t t3">T27</td><td class="t t3">T27</td></tr>
+          <tr><th class="num">r15</th><td class="t t4">T28</td><td class="t t4">T28</td><td class="t t5">T29</td><td class="t t5">T29</td><td class="t t6">T30</td><td class="t t6">T30</td><td class="t t7">T31</td><td class="t t7">T31</td></tr>
+        </table>
+      </div>
+      <p>So <b>thread 0</b>, across this one instruction, computes and accumulates exactly four outputs —
+      <code>C[0,0], C[0,1], C[8,0], C[8,1]</code> of the micro-tile — by taking the dot product of its share
+      of the A-rows with its share of the B-cols, all from registers, in a single hardware op. The tensor
+      core reads A and B fragments from registers and adds into the C registers; <b>L2 and HBM are nowhere on
+      this path</b>. Multiply that by 32 micro-tiles per warp × 8 warps × 2 K-substeps × 40 iterations and the
+      block's whole 256×128 patch is built.</p>
+    </section>
+
+    <section id="epilogue">
+      <div class="kicker">The finish</div>
+      <h2>Epilogue: registers → shared → HBM</h2>
+      <p>When K is exhausted, each thread's 128 fp32 accumulators are the final answer for its slice of C. The
+      epilogue then: applies the <code>alpha</code> scale (and the linear's bias if fused), <b>casts fp32 →
+      bf16</b>, and writes back to <code>C</code> in HBM. Because the per-thread register layout is scattered
+      (those <code>r, r+8</code> stripes), the values are first shuffled <b>through shared memory</b> into
+      contiguous rows so the store to HBM is fully coalesced. The <code>relu</code> in the kernel name could
+      run here for free — but ESM2's GeLU does not, so it lands a few kernels later as the separate
+      <code>erf</code> op you see in the <a href="m7.html">Milestone&nbsp;7</a> breakdown.</p>
+    </section>
+
+    <section id="recap">
+      <div class="kicker">Putting it together</div>
+      <h2>Where every value comes from</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>when</th><th>A &amp; B come from</th><th>C lives in</th><th>moved by</th></tr></thead>
+          <tbody>
+            <tr><td>first touch of a panel</td><td>HBM (300 GB/s)</td><td>—</td><td><code>cp.async</code> → shared</td></tr>
+            <tr><td>reused by sibling blocks</td><td><b>L2</b> (48 MB)</td><td>—</td><td><code>cp.async</code> → shared</td></tr>
+            <tr><td>each mainloop iteration</td><td><b>shared</b> (72 KB staged)</td><td>registers</td><td><code>ldmatrix</code> → registers</td></tr>
+            <tr><td>each <code>mma.sync</code></td><td><b>registers</b></td><td><b>registers</b> (fp32)</td><td>tensor core</td></tr>
+            <tr><td>after the K-loop</td><td>—</td><td>registers → shared → <b>HBM</b></td><td>epilogue store</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The one-sentence version: <b>A and B climb HBM → L2 → shared → registers once per tile and get reused
+      hundreds of times up there; C is born in registers, accumulated entirely in registers across 40 K-steps,
+      and only touches HBM once, at the end.</b> That staged reuse is what converts an 819-FLOP/byte
+      compute-bound problem into a kernel that actually runs near the L4's tensor-core peak.</p>
+    </section>
+
+    <section id="caveats">
+      <div class="kicker">Honest scope</div>
+      <h2>What's certain, what's the standard config</h2>
+      <ul class="clean">
+        <li><b>Read from the kernel name (certain):</b> bf16 in/out, <code>m16n8k16</code> instruction,
+        256×128 CTA tile, K-step 32, 3 pipeline stages, tn layout, 128-bit aligned loads.</li>
+        <li><b>The canonical CUTLASS config for that tile (not in the name):</b> 64×64 warp shape → 8 warps /
+        256 threads, and the resulting 72 KB shared / ~255 reg-per-thread / 1-block-per-SM occupancy. These
+        are the standard pairing cuBLAS uses, but the profiler did not dump the internal warp shape for this
+        run.</li>
+        <li><b>The MMA fragment &amp; C-ownership layout is exact</b> — it is fixed by the PTX ISA for
+        <code>mma.m16n8k16.f32</code>, identical on every Ampere/Ada/Hopper tensor core.</li>
+        <li><b>L4 numbers</b> (58 SM, 100 KB shared, 64K regs, 48 MB L2, 300 GB/s) are the published Ada / L4
+        specs; the per-SM occupancy limits come from compute capability 8.9.</li>
+        <li>Real cuBLAS may also pick split-K or stream-K variants for some shapes; this walk assumes the
+        straightforward data-parallel tiling the named kernel implements.</li>
+      </ul>
+    </section>
+
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+<script src="assets/nav.js?v=10"></script>
+</body>
+</html>

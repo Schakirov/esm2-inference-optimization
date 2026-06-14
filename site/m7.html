@@ -84,6 +84,67 @@
       <p class="codecap">Source: <code>results/raw/profile_20260613T171924Z.csv</code> · 10 iters, per-iter values.</p>
     </section>
 
+    <section id="glossary">
+      <div class="kicker">A feel for each kernel</div>
+      <h2>What are these things, actually?</h2>
+      <p class="lead">The names are mangled C++ templates, but each one maps to something concrete in the
+      transformer. They sort into three families: <b>tensor-core heavyweights</b> doing the real math,
+      <b>memory-bound streamers</b> that just move bytes (the fusion headroom), and <b>fused specialists</b>
+      that already do their job in one shot.</p>
+
+      <h3>Tensor-core heavyweights — the real FLOPs (~42%)</h3>
+      <ul class="clean">
+        <li><code>cutlass … s16816gemm</code> <span class="tag">24.9%</span> — the big <b>FFN matrix
+        multiply</b>. Every layer's feed-forward block expands the 1280-dim hidden state to ~5120 and back;
+        this is NVIDIA's hand-tuned CUTLASS GEMM doing those bf16 matmuls on the tensor cores. <code>s16816</code>
+        is the tensor-core instruction shape (16×8×16). It's the single most expensive kernel — and it's the
+        <em>good</em> kind of expensive: dense work running near peak. The <code>relu</code> in the name is a
+        fused epilogue, so the activation rides along for free.</li>
+        <li><code>ampere … s1688gemm</code> <span class="tag">12.6%</span> — the other GEMM family: the
+        <b>attention Q/K/V and output projections</b> and the smaller linears. Same tensor cores, a different
+        tile shape (<code>s1688</code> = 16×8×8) that the autotuner picked for these dimensions.</li>
+        <li><code>flash_fwd_kernel</code> <span class="tag">4.7%</span> — <b>flash-attention</b>. The whole
+        <code>softmax(QKᵀ)V</code> is fused into one kernel that tiles over the sequence and keeps the
+        attention matrix on-chip — it never writes the full N×N scores to HBM. That fusion is exactly why
+        "the attention" is so cheap here despite the quadratic reputation.</li>
+      </ul>
+
+      <h3>Memory-bound streamers — the fusion headroom (~43%)</h3>
+      <p>These do almost no arithmetic. Each reads a tensor from HBM, touches every element once, and writes
+      it back — so they're limited by bandwidth, not compute. Launching them separately means the same
+      activations get streamed through memory over and over. This is precisely what
+      <a href="m5.html"><code>torch.compile</code></a> fuses into the neighbouring kernels.</p>
+      <ul class="clean">
+        <li><code>elementwise · mul</code> <span class="tag">8.1%</span> — per-element <b>multiply</b>:
+        scalings, gates, the multiplicative half of GeLU.</li>
+        <li><code>elementwise · add</code> <span class="tag">5.9%</span> — per-element <b>add</b>: the
+        <code>x + sublayer(x)</code> residual connections and bias adds.</li>
+        <li><code>elementwise · erf</code> <span class="tag">5.3%</span> — the <b>GeLU activation</b>, which
+        is built on the error function <code>erf</code>. Transcendental math per element, but at this size
+        still dominated by the read/write.</li>
+        <li><code>direct_copy</code> (cast) <span class="tag">5.6%</span> — a <b>dtype-conversion copy</b>
+        (bf16↔fp32). Some ops upcast to fp32 for numerical safety and come back; this kernel exists only to
+        stream the tensor through memory to change its type. Pure overhead — a prime fusion target.</li>
+        <li><code>CatArrayBatchedCopy</code> (rotary) <span class="tag">4.4%</span> — a <b>concatenate</b>
+        from the rotary position embeddings (RoPE rotates query/key halves and stitches them back with a
+        <code>cat</code>). No math, just data movement.</li>
+      </ul>
+
+      <h3>Fused specialist — already a single kernel (~1%)</h3>
+      <ul class="clean">
+        <li><code>vectorized_layer_norm</code> <span class="tag">1.3%</span> — <b>LayerNorm</b>: compute
+        mean/variance across the hidden dim and normalize. It's a reduction plus an elementwise pass, but
+        PyTorch ships it as one fused kernel, so it's already cheap and there's little left to win.</li>
+      </ul>
+
+      <div class="note">
+        <div class="h">The one-line intuition</div>
+        <p>The GEMMs and flash-attention are doing the actual work and running efficiently. The other ~43% is
+        the model <em>shuffling activations through HBM</em> between those matmuls — and that shuffling, not
+        the math, is the headroom a fused/compiled backend reclaims.</p>
+      </div>
+    </section>
+
     <section>
       <div class="kicker">What the profile says</div>
       <h2>Key takeaways</h2>
@@ -117,6 +178,6 @@
     <div class="pager" id="pager"></div>
   </main>
 </div>
-<script src="assets/nav.js?v=9"></script>
+<script src="assets/nav.js?v=10"></script>
 </body>
 </html>
