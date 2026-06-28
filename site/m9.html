@@ -12,20 +12,26 @@
   <nav class="side" id="side"></nav>
   <main>
     <div class="phead">
-      <div class="statusline todo">○ Planned</div>
+      <div class="statusline done">● Complete</div>
       <h2>Milestone 9 · Final cleanup</h2>
       <p class="lead">A closing sweep to leave the repository tidy, tested, and consistent — the final
       commit before the project is considered complete.</p>
     </div>
 
     <section>
-      <div class="kicker">What this milestone will do</div>
-      <h2>Plan</h2>
+      <div class="kicker">What this milestone did</div>
+      <h2>Outcome</h2>
       <ul class="clean">
-        <li><b>Test sweep.</b> Run the full <code>pytest</code> suite and confirm everything passes.</li>
-        <li><b>Format / lint.</b> Apply ruff formatting and resolve lint findings across the codebase.</li>
-        <li><b>Status sweep.</b> Run <code>git status</code>, confirm no secrets / weights / venvs /
-        large artifacts are staged, and that docs (<code>commits/</code>, <code>milestones/</code>) are current.</li>
+        <li><b>Test sweep.</b> Ran the full <code>pytest</code> suite — 59 passed.</li>
+        <li><b>Lint / format.</b> <code>ruff check</code> passes clean. <code>ruff format</code> was
+        intentionally <em>not</em> applied: it would rewrite 13 files (~332-line diff) by collapsing
+        the deliberately column-aligned inline comments in the schema definitions — a readability
+        regression with no correctness benefit. Lint is the enforced gate; ruff stays a dev-only tool.</li>
+        <li><b>Status sweep.</b> <code>git status</code> / <code>git clean -nxd</code> confirm a clean
+        tree with only <code>.venv</code>/caches ignored (largest tracked file 32&nbsp;KB), and the
+        <code>commits/</code> &amp; <code>milestones/</code> docs are current.</li>
+        <li><b>Report drift guard.</b> Wired <code>07_summarize_results.py --check</code> into a
+        runnable cleanup checklist in <code>docs/REPRODUCIBILITY.md</code>.</li>
         <li><b>Final commit.</b> One clean closing commit; nothing pushed.</li>
       </ul>
     </section>
@@ -38,7 +44,9 @@
       README at portfolio quality — with limitations and negative results stated honestly.</p>
       <div class="note">
         <div class="h">Key takeaways</div>
-        <p>To be populated once this milestone runs.</p>
+        <p>All ten milestones are documented, the test suite and lint pass, and the report is
+        provably in sync with the raw CSVs. The project is feature-complete at 9 / 9; any further
+        work (new shapes, GPUs, or kernels) would start a new plan.</p>
       </div>
     </section>
 

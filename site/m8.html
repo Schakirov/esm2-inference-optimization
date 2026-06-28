@@ -12,36 +12,45 @@
   <nav class="side" id="side"></nav>
   <main>
     <div class="phead">
-      <div class="statusline todo">○ Planned</div>
+      <div class="statusline done">● Complete</div>
       <h2>Milestone 8 · Result processing &amp; portfolio README</h2>
       <p class="lead">Consolidate every CSV under <code>results/raw/</code> into readable summary tables,
       and bring the README up to portfolio quality — the public face of the project.</p>
     </div>
 
     <section>
-      <div class="kicker">What this milestone will do</div>
-      <h2>Plan</h2>
+      <div class="kicker">What this milestone did</div>
+      <h2>Outcome</h2>
       <ul class="clean">
-        <li><b>Summarize.</b> Process the baseline, batching/padding, <code>torch.compile</code>, and
-        Triton-pooling CSVs into markdown tables and processed artifacts.</li>
-        <li><b>Populate <code>docs/RESULTS.md</code>.</b> Currently a stub — it becomes the consolidated
-        results document, alongside correctness summaries.</li>
-        <li><b>Finalize the README.</b> Fill the "Results", "What improved performance", "What did not
-        improve performance", and "Future work" sections that are presently placeholders.</li>
+        <li><b>Summarized.</b> Processed the baseline, correctness, batching/padding,
+        <code>torch.compile</code>, Triton-pooling, and profiling CSVs into markdown tables and
+        condensed <code>results/processed/</code> artifacts.</li>
+        <li><b>Populated <code>docs/RESULTS.md</code>.</b> The former stub is now the consolidated
+        results document; its tables are spliced in from the raw CSVs between markers, and
+        <code>--check</code> fails on drift so prose can't diverge from the data.</li>
+        <li><b>Finalized the README.</b> Filled the "Results", "What improved", "What did not
+        improve", and "Future work" sections to portfolio quality.</li>
       </ul>
     </section>
 
     <section>
-      <div class="kicker">Planned outputs</div>
+      <div class="kicker">Delivered outputs</div>
       <h2>Artifacts</h2>
       <ul class="clean">
-        <li><code>scripts/07_summarize_results.py</code> — CSV → summary-table generator.</li>
-        <li>Processed tables under <code>results/processed/</code>.</li>
-        <li>Portfolio-quality <code>README.md</code> and populated <code>docs/RESULTS.md</code>.</li>
+        <li><code>scripts/07_summarize_results.py</code> — stdlib-only CSV → summary-table generator
+        (<code>--check</code> drift guard).</li>
+        <li>Six processed tables under <code>results/processed/</code>.</li>
+        <li>Portfolio-quality <code>README.md</code> and populated <code>docs/RESULTS.md</code>;
+        6 new tests (59 total).</li>
       </ul>
       <div class="note">
         <div class="h">Key takeaways</div>
-        <p>To be populated once this milestone runs and passes its review gate.</p>
+        <p>The report is regenerated from data, not hand-maintained, so it cannot silently drift.
+        The summarizer selects the <em>richest</em> CSV per experiment (most rows), so a
+        <code>--quick</code> smoke run never shadows the full matrix. Consolidated story:
+        length-sorted batching is the cheapest real win (~1.7×), <code>torch.compile</code> is a
+        real 1.3×–2.2× with a ~28&nbsp;s/shape cold start, and the Triton kernel is correct and
+        fastest-in-shape but negligible end-to-end — reported as honestly as the wins.</p>
       </div>
     </section>
 
