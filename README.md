@@ -1,9 +1,9 @@
 # ESM2 L4 Inference Optimization
 
-> **Status: results complete (8 / 9 milestones).** Benchmarks, correctness checks,
-> profiling, and the consolidated report are done; only the final repo-cleanup sweep
-> (Milestone 9) remains. See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap and
-> [`docs/RESULTS.md`](docs/RESULTS.md) for the full numbers.
+> **Status: complete (9 / 9 milestones).** Benchmarks, correctness checks, profiling, the
+> consolidated report, and the final repo-cleanup sweep are all done. See
+> [`docs/PLAN.md`](docs/PLAN.md) for the roadmap and [`docs/RESULTS.md`](docs/RESULTS.md)
+> for the full numbers.
 
 ## TL;DR
 
